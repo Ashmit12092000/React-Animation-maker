@@ -1,0 +1,123 @@
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap');
+
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  :root {
+    --background: 220 13% 10%;
+    --foreground: 210 20% 95%;
+
+    --card: 220 13% 13%;
+    --card-foreground: 210 20% 95%;
+
+    --popover: 220 13% 15%;
+    --popover-foreground: 210 20% 95%;
+
+    --primary: 200 100% 60%;
+    --primary-foreground: 220 13% 10%;
+
+    --secondary: 220 13% 18%;
+    --secondary-foreground: 210 20% 85%;
+
+    --muted: 220 13% 20%;
+    --muted-foreground: 215 15% 55%;
+
+    --accent: 155 80% 50%;
+    --accent-foreground: 220 13% 10%;
+
+    --destructive: 0 70% 55%;
+    --destructive-foreground: 210 20% 95%;
+
+    --border: 220 13% 22%;
+    --input: 220 13% 18%;
+    --ring: 200 100% 60%;
+
+    --radius: 0.5rem;
+
+    /* Animation Editor specific */
+    --canvas-bg: 220 15% 8%;
+    --panel-bg: 220 13% 12%;
+    --panel-border: 220 13% 18%;
+    --timeline-bg: 220 14% 9%;
+    --timeline-track: 220 13% 15%;
+    --playhead: 45 90% 65%;
+    
+    /* Track colors - vibrant gradients */
+    --track-green: 145 75% 55%;
+    --track-cyan: 190 90% 55%;
+    --track-orange: 25 95% 60%;
+    --track-purple: 280 70% 60%;
+    
+    --sidebar-background: 220 13% 11%;
+    --sidebar-foreground: 210 20% 90%;
+    --sidebar-primary: 200 100% 60%;
+    --sidebar-primary-foreground: 220 13% 10%;
+    --sidebar-accent: 220 13% 16%;
+    --sidebar-accent-foreground: 210 20% 90%;
+    --sidebar-border: 220 13% 20%;
+    --sidebar-ring: 200 100% 60%;
+  }
+}
+
+@layer base {
+  * {
+    @apply border-border;
+  }
+
+  body {
+    @apply bg-background text-foreground font-sans antialiased;
+    font-family: 'Inter', system-ui, sans-serif;
+  }
+}
+
+@layer utilities {
+  .panel-shadow {
+    box-shadow: 0 4px 20px -4px hsl(220 13% 5% / 0.5);
+  }
+  
+  .track-gradient-green {
+    background: linear-gradient(90deg, hsl(145 75% 55%) 0%, hsl(155 80% 50%) 100%);
+  }
+  
+  .track-gradient-cyan {
+    background: linear-gradient(90deg, hsl(190 90% 55%) 0%, hsl(200 85% 60%) 100%);
+  }
+  
+  .track-gradient-orange {
+    background: linear-gradient(90deg, hsl(25 95% 60%) 0%, hsl(280 70% 60%) 100%);
+  }
+  
+  .glow-primary {
+    box-shadow: 0 0 20px hsl(200 100% 60% / 0.3);
+  }
+}
+
+
+/* Custom scrollbar styling */
+.custom-scrollbar::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+
+.custom-scrollbar::-webkit-scrollbar-track {
+  background: hsl(var(--secondary));
+  border-radius: 4px;
+}
+
+.custom-scrollbar::-webkit-scrollbar-thumb {
+  background: hsl(var(--muted-foreground) / 0.3);
+  border-radius: 4px;
+  transition: background 0.2s;
+}
+
+.custom-scrollbar::-webkit-scrollbar-thumb:hover {
+  background: hsl(var(--muted-foreground) / 0.5);
+}
+
+/* Firefox scrollbar styling */
+.custom-scrollbar {
+  scrollbar-width: thin;
+  scrollbar-color: hsl(var(--muted-foreground) / 0.3) hsl(var(--secondary));
+}
