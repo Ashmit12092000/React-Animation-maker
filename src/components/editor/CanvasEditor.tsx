@@ -13,7 +13,7 @@ import * as PIXI from "pixi.js";
 import { useEditorStore, type Asset } from "@/stores/editorStore";
 import { ContextMenu } from "./ContextMenu";
 import { PathDrawOverlay } from "./PathDrawOverlay";
-import { DragonBonesRenderer, loadDragonBonesData } from "@/lib/dragonbonesRenderer";
+import { loadCharacter } from "@/lib/dragonbonesRenderer";
 
 (window as any).PIXI = PIXI;
 
@@ -22,7 +22,7 @@ export function CanvasEditor() {
   const pixiCanvasRef = useRef<HTMLCanvasElement>(null);
   const fabricRef = useRef<FabricCanvas | null>(null);
   const pixiAppRef = useRef<PIXI.Application | null>(null);
-  const renderersRef = useRef<DragonBonesRenderer[]>([]);
+  const armatureDisplaysRef = useRef<import("dragonbones-pixijs").PixiArmatureDisplay[]>([]);
 
 
   const {
@@ -92,11 +92,10 @@ export function CanvasEditor() {
           console.log("Started PIXI ticker");
         }
         
-        // Add ticker callback for animation updates
-        pixiApp.ticker.add((ticker) => {
-          // Update all active DragonBones renderers
-          renderersRef.current.forEach(renderer => {
-            renderer.update(ticker.deltaMS);
+        // Tick the DragonBones factory on every frame (official runtime requirement)
+        pixiApp.ticker.add(() => {
+          import("dragonbones-pixijs").then(({ PixiFactory }) => {
+            PixiFactory.factory.dragonBones?.advanceTime(pixiApp.ticker.deltaMS / 1000);
           });
         });
       } catch (err) {
@@ -212,13 +211,21 @@ export function CanvasEditor() {
       if (!obj) return;
 
       if ((obj as any).customType === 'character') {
+        const display = (obj as any).armatureDisplay;
+        if (display) {
+          const w = (obj.width  || 100) * (obj.scaleX || 1);
+          const h = (obj.height || 300) * (obj.scaleY || 1);
+          const baseScale = display.scale.x / (obj.scaleX || 1);
+          display.x = (obj.left || 0) + w / 2;
+          display.y = (obj.top  || 0) + h;
+          display.scale.set(baseScale * (obj.scaleX || 1));
+        }
         const armature = (obj as any).armature;
         if (armature) {
-          // Center the armature within the proxy rect
           const proxyW = (obj.width || 200) * (obj.scaleX || 1);
           const proxyH = (obj.height || 200) * (obj.scaleY || 1);
           armature.x = (obj.left || 0) + proxyW / 2;
-          armature.y = (obj.top || 0) + proxyH / 2;
+          armature.y = (obj.top  || 0) + proxyH / 2;
         }
       }
 
@@ -492,94 +499,62 @@ export function CanvasEditor() {
     } else if (asset.type === "character") {
       const SKE_URL = "/dragonbones/characte_2_ske.json";
       const TEX_URL = "/dragonbones/characte_2_tex.json";
-      // Try loading from source folder first, then fallback to public
-      const IMG_URLS = [
-        "/DRAGONBONES IWR Loops JSON/DRAGONBONES IWR Loops JSON/exports/characte_2_tex.png",
-        "/dragonbones/characte_2_tex.png",
-      ];
-      const ARMATURE_NAME = "Armature";
+      const IMG_URL = "/DRAGONBONES IWR Loops JSON/DRAGONBONES IWR Loops JSON/exports/characte_2_tex.png";
 
-      // Cache loaded data on the window to avoid re-fetching
-      const cache = (window as any).__dbCache || ((window as any).__dbCache = {});
+      // DragonBones AABB: width=323.72, height=945.35, feet at y=0, head at y=-912
+      // We want the character ~300px tall on the 960x540 canvas
+      const CHAR_DB_HEIGHT = 945;
+      const CHAR_DB_WIDTH  = 324;
+      const targetHeight   = 300;
+      const scale          = targetHeight / CHAR_DB_HEIGHT;
+      const charW          = Math.round(CHAR_DB_WIDTH * scale);  // ~103px
+      const charH          = targetHeight;                        // 300px
 
-      // Create proxy rect immediately and add to timeline synchronously
-      // This ensures character appears in timeline even if PIXI loading fails
-      const proxySize = 200;
+      // Invisible proxy rect — same size as the rendered character.
+      // It acts as the Fabric drag/select handle; the PIXI display tracks it.
       const proxy = new Rect({
-        left: baseLeft,
-        top: baseTop,
-        width: proxySize,
-        height: proxySize,
-        fill: "#6464FF",
-        opacity: 0.15,
-        stroke: "#6464FF",
-        strokeWidth: 2,
-        strokeDashArray: [6, 4],
-        rx: 4,
-        ry: 4,
+        left:   baseLeft,
+        top:    baseTop,
+        width:  charW,
+        height: charH,
+        fill:   "rgba(0,0,0,0)",
+        opacity: 0,          // fully transparent — character renders on PIXI layer
+        stroke: "transparent",
+        strokeWidth: 0,
       });
-
-      // Add to canvas and timeline immediately (synchronous)
       addObjectToCanvas(proxy, id, asset);
 
-      // Then asynchronously load and render the PIXI armature using custom renderer
-      const buildCharacter = async () => {
+      (async () => {
         try {
-          console.log("[DragonBones] Starting custom renderer setup...");
-          
           const pixiApp = pixiAppRef.current;
-          if (!pixiApp) {
-            console.warn("[DragonBones] PIXI app not available");
-            return;
+          if (!pixiApp) return;
+
+          const { display, animations } = await loadCharacter(SKE_URL, TEX_URL, IMG_URL);
+
+          display.scale.set(scale);
+          // Fabric rect origin is top-left; DragonBones y=0 is feet → offset by charH
+          display.x = baseLeft + charW / 2;
+          display.y = baseTop  + charH;
+
+          pixiApp.stage.addChild(display);
+
+          // Play animation matching the dragged card name
+          const targetAnim =
+            animations.find((a) => a.toLowerCase() === asset.name.toLowerCase())
+            ?? animations[0];
+          if (targetAnim) {
+            display.animation.play(targetAnim);
+            console.log("[DragonBones] Playing:", targetAnim, "| Available:", animations);
           }
 
-          // Load skeleton, texture data, and image using custom loader
-          console.log("[DragonBones] Loading DragonBones data...");
-          const { data, atlas, texture } = await loadDragonBonesData(
-            SKE_URL,
-            TEX_URL,
-            IMG_URLS
-          );
-
-          // Create renderer
-          console.log("[DragonBones] Creating DragonBonesRenderer...");
-          const renderer = new DragonBonesRenderer(data, atlas, texture);
-          
-          const armature = renderer.getArmature();
-          
-          // Position and add to stage
-          armature.x = baseLeft + 100;
-          armature.y = baseTop + 100;
-          armature.scale.set(1);
-          
-          pixiApp.stage.addChild(armature);
-          console.log("[DragonBones] Armature added to PIXI stage at position:", armature.x, armature.y);
-
-          // Play first available animation
-          const animations = renderer.getAnimations();
-          if (animations.length > 0) {
-            console.log("[DragonBones] Available animations:", animations);
-            renderer.play(animations[0], 0);
-            console.log("[DragonBones] Playing animation:", animations[0]);
-          } else {
-            console.log("[DragonBones] No animations found in armature (static model)");
-          }
-
-          // Store reference
-          (proxy as any).armature = armature;
-          (proxy as any).renderer = renderer;
-          
-          // Add to active renderers for animation updates
-          renderersRef.current.push(renderer);
-          console.log("[DragonBones] Renderer added to animation loop. Active renderers:", renderersRef.current.length);
+          // Sync PIXI display position when proxy rect is moved/scaled
+          (proxy as any).armatureDisplay = display;
+          armatureDisplaysRef.current.push(display);
 
         } catch (err) {
-          console.error("[DragonBones] Error building character:", err);
-          console.warn("[DragonBones] Character remains as placeholder");
+          console.error("[DragonBones] Failed to load character:", err);
         }
-      };
-
-      buildCharacter();
+      })();
     } else if (asset.type === "video") {
         const videoEl = createVideoElement(asset.src!);
 
