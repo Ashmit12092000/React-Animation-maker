@@ -13,7 +13,7 @@ import * as PIXI from "pixi.js";
 import { useEditorStore, type Asset } from "@/stores/editorStore";
 import { ContextMenu } from "./ContextMenu";
 import { PathDrawOverlay } from "./PathDrawOverlay";
-import { loadCharacter } from "@/lib/dragonbonesRenderer";
+import { loadCharacter, hookPixiTicker } from "@/lib/dragonbonesRenderer";
 
 (window as any).PIXI = PIXI;
 
@@ -93,11 +93,7 @@ export function CanvasEditor() {
         }
         
         // Tick the DragonBones factory on every frame (official runtime requirement)
-        pixiApp.ticker.add(() => {
-          import("dragonbones-pixijs").then(({ PixiFactory }) => {
-            PixiFactory.factory.dragonBones?.advanceTime(pixiApp.ticker.deltaMS / 1000);
-          });
-        });
+        hookPixiTicker(pixiApp);
       } catch (err) {
         console.error("Failed to initialize PIXI app:", err);
       }
@@ -213,19 +209,14 @@ export function CanvasEditor() {
       if ((obj as any).customType === 'character') {
         const display = (obj as any).armatureDisplay;
         if (display) {
-          const w = (obj.width  || 100) * (obj.scaleX || 1);
-          const h = (obj.height || 300) * (obj.scaleY || 1);
-          const baseScale = display.scale.x / (obj.scaleX || 1);
-          display.x = (obj.left || 0) + w / 2;
-          display.y = (obj.top  || 0) + h;
-          display.scale.set(baseScale * (obj.scaleX || 1));
-        }
-        const armature = (obj as any).armature;
-        if (armature) {
-          const proxyW = (obj.width || 200) * (obj.scaleX || 1);
-          const proxyH = (obj.height || 200) * (obj.scaleY || 1);
-          armature.x = (obj.left || 0) + proxyW / 2;
-          armature.y = (obj.top  || 0) + proxyH / 2;
+          const dbScale = (obj as any).dbScale ?? 1;
+          const charW   = (obj as any).charW   ?? (obj.width  || 103);
+          const charH   = (obj as any).charH   ?? (obj.height || 300);
+          const userScaleX = obj.scaleX || 1;
+          const userScaleY = obj.scaleY || 1;
+          display.x = (obj.left || 0) + (charW * userScaleX) / 2;
+          display.y = (obj.top  || 0) +  charH * userScaleY;
+          display.scale.set(dbScale * Math.max(userScaleX, userScaleY));
         }
       }
 
@@ -253,12 +244,16 @@ export function CanvasEditor() {
 
       // Sync PIXI DragonBones armature position after move/scale
       if (target && (target as any).customType === "character") {
-        const armature = (target as any).armature;
-        if (armature) {
-          const proxyW = (target.width || 200) * (target.scaleX || 1);
-          const proxyH = (target.height || 200) * (target.scaleY || 1);
-          armature.x = (target.left || 0) + proxyW / 2;
-          armature.y = (target.top || 0) + proxyH / 2;
+        const display = (target as any).armatureDisplay;
+        if (display) {
+          const dbScale = (target as any).dbScale ?? 1;
+          const charW   = (target as any).charW   ?? (target.width  || 103);
+          const charH   = (target as any).charH   ?? (target.height || 300);
+          const userScaleX = target.scaleX || 1;
+          const userScaleY = target.scaleY || 1;
+          display.x = (target.left || 0) + (charW * userScaleX) / 2;
+          display.y = (target.top  || 0) +  charH * userScaleY;
+          display.scale.set(dbScale * Math.max(userScaleX, userScaleY));
         }
       }
 
@@ -497,59 +492,60 @@ export function CanvasEditor() {
           addObjectToCanvas(obj, id, asset);
         }
     } else if (asset.type === "character") {
-      const SKE_URL = "/dragonbones/characte_2_ske.json";
-      const TEX_URL = "/dragonbones/characte_2_tex.json";
-      const IMG_URL = "/DRAGONBONES IWR Loops JSON/DRAGONBONES IWR Loops JSON/exports/characte_2_tex.png";
-
-      // DragonBones AABB: width=323.72, height=945.35, feet at y=0, head at y=-912
-      // We want the character ~300px tall on the 960x540 canvas
+      // DragonBones AABB for this character: ~324w × 945h (feet at y=0)
+      // Target: fit 300px tall on the 960×540 canvas
       const CHAR_DB_HEIGHT = 945;
       const CHAR_DB_WIDTH  = 324;
       const targetHeight   = 300;
-      const scale          = targetHeight / CHAR_DB_HEIGHT;
-      const charW          = Math.round(CHAR_DB_WIDTH * scale);  // ~103px
-      const charH          = targetHeight;                        // 300px
+      const dbScale        = targetHeight / CHAR_DB_HEIGHT;
+      const charW          = Math.round(CHAR_DB_WIDTH * dbScale);  // ≈103px
+      const charH          = targetHeight;
 
-      // Invisible proxy rect — same size as the rendered character.
-      // It acts as the Fabric drag/select handle; the PIXI display tracks it.
+      // Semi-transparent proxy rect so the user can see/select/move the character.
+      // The actual pixels are rendered by PIXI on the overlay canvas.
       const proxy = new Rect({
-        left:   baseLeft,
-        top:    baseTop,
-        width:  charW,
-        height: charH,
-        fill:   "rgba(0,0,0,0)",
-        opacity: 0,          // fully transparent — character renders on PIXI layer
-        stroke: "transparent",
-        strokeWidth: 0,
+        left:        baseLeft,
+        top:         baseTop,
+        width:       charW,
+        height:      charH,
+        fill:        "rgba(100,100,255,0.08)",
+        stroke:      "rgba(100,100,255,0.5)",
+        strokeWidth: 1,
+        strokeDashArray: [4, 4],
+        rx: 4,
+        ry: 4,
       });
       addObjectToCanvas(proxy, id, asset);
 
       (async () => {
         try {
           const pixiApp = pixiAppRef.current;
-          if (!pixiApp) return;
+          if (!pixiApp) {
+            console.error("[DragonBones] PIXI app not ready");
+            return;
+          }
 
-          const { display, animations } = await loadCharacter(SKE_URL, TEX_URL, IMG_URL);
+          // loadCharacter handles singleton factory — safe to call multiple times
+          const { display } = await loadCharacter(asset.name);
 
-          display.scale.set(scale);
-          // Fabric rect origin is top-left; DragonBones y=0 is feet → offset by charH
-          display.x = baseLeft + charW / 2;
-          display.y = baseTop  + charH;
+          display.scale.set(dbScale);
+          // DragonBones origin (y=0) is at the feet; offset down by charH
+          display.x = (proxy.left ?? baseLeft) + charW / 2;
+          display.y = (proxy.top  ?? baseTop)  + charH;
 
           pixiApp.stage.addChild(display);
 
-          // Play animation matching the dragged card name
-          const targetAnim =
-            animations.find((a) => a.toLowerCase() === asset.name.toLowerCase())
-            ?? animations[0];
-          if (targetAnim) {
-            display.animation.play(targetAnim);
-            console.log("[DragonBones] Playing:", targetAnim, "| Available:", animations);
-          }
-
-          // Sync PIXI display position when proxy rect is moved/scaled
+          // Store reference so we can sync position on move/scale
           (proxy as any).armatureDisplay = display;
+          (proxy as any).dbScale         = dbScale;
+          (proxy as any).charW           = charW;
+          (proxy as any).charH           = charH;
           armatureDisplaysRef.current.push(display);
+
+          // Record the initial animation name in the track so the popup knows
+          // what state the character is currently in
+          const startAnim = display.animation.lastAnimationName ?? asset.name;
+          useEditorStore.getState().updateTrack(id, { characterAnimation: startAnim });
 
         } catch (err) {
           console.error("[DragonBones] Failed to load character:", err);

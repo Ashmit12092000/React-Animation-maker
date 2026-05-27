@@ -3,20 +3,43 @@ import { useEditorStore } from "@/stores/editorStore";
 import { smoothPoints, buildCumulativeLengths } from "@/utils/pathAnimation";
 import type { PathPoint } from "@/types";
 import { toast } from "sonner";
+import { CharacterPathPopup } from "./CharacterPathPopup";
 
 interface Props {
-  canvasWidth: number;
+  canvasWidth:  number;
   canvasHeight: number;
 }
 
 export function PathDrawOverlay({ canvasWidth, canvasHeight }: Props) {
-  const { pathDrawMode, pathDrawTargetId, setPathDrawMode, assignPathToTrack, tracks } =
-    useEditorStore();
+  const {
+    pathDrawMode,
+    pathDrawTargetId,
+    setPathDrawMode,
+    assignPathToTrack,
+    tracks,
+  } = useEditorStore();
 
-  const svgRef = useRef<SVGSVGElement>(null);
+  const svgRef    = useRef<SVGSVGElement>(null);
   const [rawPoints, setRawPoints] = useState<PathPoint[]>([]);
-  const [drawing, setDrawing] = useState(false);
-  const [previewD, setPreviewD] = useState("");
+  const [drawing,   setDrawing]   = useState(false);
+  const [previewD,  setPreviewD]  = useState("");
+
+  // After path is drawn on a character, show the action popup
+  const [charPopup, setCharPopup] = useState<{
+    trackId:   string;
+    endPoint:  { x: number; y: number };
+  } | null>(null);
+
+  // We need the Fabric canvas element to map canvas→screen coords in the popup
+  const [fabricCanvasEl, setFabricCanvasEl] = useState<HTMLCanvasElement | null>(null);
+  useEffect(() => {
+    // The Fabric <canvas> is the first sibling of our SVG (same parent wrapper)
+    if (svgRef.current) {
+      const parent  = svgRef.current.closest(".relative.rounded-lg");
+      const canvasEl = parent?.querySelector("canvas") as HTMLCanvasElement | null;
+      setFabricCanvasEl(canvasEl ?? null);
+    }
+  }, [pathDrawMode]);
 
   useEffect(() => {
     if (!pathDrawMode) {
@@ -26,24 +49,15 @@ export function PathDrawOverlay({ canvasWidth, canvasHeight }: Props) {
     }
   }, [pathDrawMode]);
 
-  /**
-   * Convert a pointer screen-position to Fabric canvas-space coordinates.
-   * We read the bounding rect of the <svg> (which sits exactly over the
-   * <canvas> element) and scale from CSS pixels → canvas logical pixels.
-   * This accounts for any CSS transform / zoom on the canvas wrapper.
-   */
   const ptFromEvent = useCallback(
     (e: React.PointerEvent<SVGSVGElement>): PathPoint => {
       const rect = svgRef.current!.getBoundingClientRect();
-      // CSS-pixel size of the rendered canvas element
-      const cssW = rect.width;
-      const cssH = rect.height;
-      // Map to Fabric's logical canvas dimensions
-      const scaleX = canvasWidth / cssW;
-      const scaleY = canvasHeight / cssH;
-      const x = (e.clientX - rect.left) * scaleX;
-      const y = (e.clientY - rect.top) * scaleY;
-      return { x, y };
+      const scaleX = canvasWidth  / rect.width;
+      const scaleY = canvasHeight / rect.height;
+      return {
+        x: (e.clientX - rect.left) * scaleX,
+        y: (e.clientY - rect.top)  * scaleY,
+      };
     },
     [canvasWidth, canvasHeight],
   );
@@ -90,149 +104,143 @@ export function PathDrawOverlay({ canvasWidth, canvasHeight }: Props) {
       return;
     }
 
-    const smoothed = smoothPoints(rawPoints, 7);
-    const cumLengths = buildCumulativeLengths(smoothed);
-    const totalLength = cumLengths[cumLengths.length - 1];
-
     if (!pathDrawTargetId) {
       toast.error("No target track selected.");
       setPathDrawMode(false);
       return;
     }
 
+    const smoothed    = smoothPoints(rawPoints, 7);
+    const cumLengths  = buildCumulativeLengths(smoothed);
+    const totalLength = cumLengths[cumLengths.length - 1];
+
+    // Check if the target is a character track
+    const targetTrack = tracks.find((t) => t.id === pathDrawTargetId);
+    const isCharacter = (targetTrack?.fabricObject as any)?.customType === "character";
+
     assignPathToTrack(pathDrawTargetId, {
       points: smoothed,
       totalLength,
       orientToPath: false,
-      speed: 0
+      speed: 1,
     });
 
-    toast.success("Path assigned! Press Play to preview.");
     setPathDrawMode(false);
     setRawPoints([]);
     setPreviewD("");
+
+    if (isCharacter) {
+      // Show action popup at the path's end-point
+      const endPt = smoothed[smoothed.length - 1];
+      setCharPopup({ trackId: pathDrawTargetId, endPoint: endPt });
+    } else {
+      toast.success("Path assigned! Press Play to preview.");
+    }
   };
 
-  if (!pathDrawMode) return null;
+  if (!pathDrawMode && !charPopup) return null;
 
   const track = tracks.find((t) => t.id === pathDrawTargetId);
 
   return (
-    <div className="absolute inset-0 z-50" style={{ cursor: "crosshair" }}>
-      {/* Instruction banner */}
-      <div
-        className="absolute top-3 left-1/2 -translate-x-1/2 z-10 px-4 py-2 rounded-full text-sm font-semibold shadow-lg pointer-events-none"
-        style={{
-          background: "linear-gradient(135deg, #6366f1 0%, #a855f7 100%)",
-          color: "#fff",
-          boxShadow: "0 4px 24px rgba(99,102,241,0.5)",
-          letterSpacing: "0.02em",
-        }}
-      >
-        ✏️ Draw a path for{" "}
-        <span style={{ color: "#fde68a" }}>{track?.name ?? "object"}</span>
-        &nbsp;·&nbsp;Release to confirm&nbsp;·&nbsp;
-        <span
-          className="pointer-events-auto cursor-pointer underline"
-          onClick={() => setPathDrawMode(false)}
-          style={{ color: "#fca5a5" }}
-        >
-          Cancel
-        </span>
-      </div>
+    <>
+      {pathDrawMode && (
+        <div className="absolute inset-0 z-50" style={{ cursor: "crosshair" }}>
+          {/* Instruction banner */}
+          <div
+            className="absolute top-3 left-1/2 -translate-x-1/2 z-10 px-4 py-2 rounded-full text-sm font-semibold shadow-lg pointer-events-none"
+            style={{
+              background:  "linear-gradient(135deg, #6366f1 0%, #a855f7 100%)",
+              color:       "#fff",
+              boxShadow:   "0 4px 24px rgba(99,102,241,0.5)",
+              letterSpacing: "0.02em",
+            }}
+          >
+            ✏️ Draw a path for{" "}
+            <span style={{ color: "#fde68a" }}>{track?.name ?? "object"}</span>
+            &nbsp;·&nbsp;Release to confirm&nbsp;·&nbsp;
+            <span
+              className="pointer-events-auto cursor-pointer underline"
+              onClick={() => setPathDrawMode(false)}
+              style={{ color: "#fca5a5" }}
+            >
+              Cancel
+            </span>
+          </div>
 
-      {/*
-        The SVG viewBox matches Fabric's logical canvas size exactly.
-        preserveAspectRatio="none" ensures the viewBox stretches to fill the
-        rendered <canvas> element (which may be CSS-scaled by the browser),
-        so our ptFromEvent mapping stays accurate.
-      */}
-      <svg
-        ref={svgRef}
-        width="100%"
-        height="100%"
-        viewBox={`0 0 ${canvasWidth} ${canvasHeight}`}
-        preserveAspectRatio="none"
-        style={{ position: "absolute", inset: 0, display: "block" }}
-        onPointerDown={handlePointerDown}
-        onPointerMove={handlePointerMove}
-        onPointerUp={handlePointerUp}
-      >
-        {/* Tinted overlay */}
-        <rect
-          x={0}
-          y={0}
-          width={canvasWidth}
-          height={canvasHeight}
-          fill="#6366f1"
-          fillOpacity={0.06}
-          stroke="#6366f1"
-          strokeOpacity={0.3}
-          strokeWidth={2}
-          strokeDasharray="8 6"
-          rx={4}
-        />
+          <svg
+            ref={svgRef}
+            width="100%"
+            height="100%"
+            viewBox={`0 0 ${canvasWidth} ${canvasHeight}`}
+            preserveAspectRatio="none"
+            style={{ position: "absolute", inset: 0, display: "block" }}
+            onPointerDown={handlePointerDown}
+            onPointerMove={handlePointerMove}
+            onPointerUp={handlePointerUp}
+          >
+            {/* Tinted overlay */}
+            <rect
+              x={0} y={0}
+              width={canvasWidth} height={canvasHeight}
+              fill="#6366f1" fillOpacity={0.06}
+              stroke="#6366f1" strokeOpacity={0.3}
+              strokeWidth={2} strokeDasharray="8 6" rx={4}
+            />
 
-        {previewD && (
-          <>
-            {/* Glow */}
-            <path
-              d={previewD}
-              fill="none"
-              stroke="#a78bfa"
-              strokeOpacity={0.35}
-              strokeWidth={14}
-              strokeLinecap="round"
-              strokeLinejoin="round"
-            />
-            {/* Core dashed line */}
-            <path
-              d={previewD}
-              fill="none"
-              stroke="#a78bfa"
-              strokeWidth={3}
-              strokeLinecap="round"
-              strokeLinejoin="round"
-              strokeDasharray="6 3"
-            />
-            {/* Start dot */}
-            {rawPoints.length > 0 && (
-              <circle
-                cx={rawPoints[0].x}
-                cy={rawPoints[0].y}
-                r={6}
-                fill="#a78bfa"
-                opacity={0.9}
-              />
+            {previewD && (
+              <>
+                {/* Glow */}
+                <path
+                  d={previewD} fill="none"
+                  stroke="#a78bfa" strokeOpacity={0.35}
+                  strokeWidth={14} strokeLinecap="round" strokeLinejoin="round"
+                />
+                {/* Core dashed line */}
+                <path
+                  d={previewD} fill="none"
+                  stroke="#a78bfa" strokeWidth={3}
+                  strokeLinecap="round" strokeLinejoin="round"
+                  strokeDasharray="6 3"
+                />
+                {/* Start dot */}
+                {rawPoints.length > 0 && (
+                  <circle cx={rawPoints[0].x} cy={rawPoints[0].y} r={6} fill="#a78bfa" opacity={0.9} />
+                )}
+                {/* Arrow at tip */}
+                {rawPoints.length > 1 && (() => {
+                  const last = rawPoints[rawPoints.length - 1];
+                  const prev = rawPoints[Math.max(0, rawPoints.length - 5)];
+                  const dx = last.x - prev.x, dy = last.y - prev.y;
+                  const len = Math.sqrt(dx * dx + dy * dy) || 1;
+                  const ux = dx / len, uy = dy / len;
+                  const perp = 7, back = 14;
+                  return (
+                    <polygon
+                      points={`
+                        ${last.x},${last.y}
+                        ${last.x - back * ux + perp * uy},${last.y - back * uy - perp * ux}
+                        ${last.x - back * ux - perp * uy},${last.y - back * uy + perp * ux}
+                      `}
+                      fill="#a78bfa" opacity={0.9}
+                    />
+                  );
+                })()}
+              </>
             )}
-            {/* Arrow at current tip */}
-            {rawPoints.length > 1 &&
-              (() => {
-                const last = rawPoints[rawPoints.length - 1];
-                const prev =
-                  rawPoints[Math.max(0, rawPoints.length - 5)];
-                const dx = last.x - prev.x;
-                const dy = last.y - prev.y;
-                const len = Math.sqrt(dx * dx + dy * dy) || 1;
-                const ux = dx / len,
-                  uy = dy / len;
-                const perp = 7,
-                  back = 14;
-                return (
-                  <polygon
-                    points={`
-                      ${last.x},${last.y}
-                      ${last.x - back * ux + perp * uy},${last.y - back * uy - perp * ux}
-                      ${last.x - back * ux - perp * uy},${last.y - back * uy + perp * ux}
-                    `}
-                    fill="#a78bfa"
-                    opacity={0.9}
-                  />
-                );
-              })()}
-          </>
-        )}
-      </svg>
-    </div>
+          </svg>
+        </div>
+      )}
+
+      {/* Character action popup — rendered in a portal-like manner via fixed positioning */}
+      {charPopup && (
+        <CharacterPathPopup
+          trackId={charPopup.trackId}
+          pathEndPoint={charPopup.endPoint}
+          canvasEl={fabricCanvasEl}
+          onClose={() => setCharPopup(null)}
+        />
+      )}
+    </>
   );
 }

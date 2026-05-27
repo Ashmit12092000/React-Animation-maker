@@ -46,6 +46,16 @@ export interface TrackObject {
   imageFilters?: string[];
   pathAnimation?: PathAnimation | null;
   volume?: number;
+  // Character-specific
+  characterAnimation?: string | null;  // current DragonBones anim name e.g. "Idle","walk","run"
+  pendingPathAction?: CharacterPathAction | null; // shown after path drawn
+}
+
+export type CharacterAnimName = "Idle" | "walk" | "run";
+
+export interface CharacterPathAction {
+  travelAnim: CharacterAnimName;       // animation while travelling
+  arrivalBehavior: "keep" | "idle";   // what to do when path ends
 }
 
 export interface Asset {

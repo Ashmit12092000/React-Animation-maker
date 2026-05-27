@@ -278,7 +278,11 @@ export function Timeline() {
       const animate = (ts: number) => {
         const elapsed = (ts - startTimeRef.current) / 1000;
         if (elapsed >= maxDuration) {
-          setIsPlaying(false); setCurrentTime(maxDuration); syncAudioPlayback(); return;
+          setCurrentTime(maxDuration);
+          applyKeyframesAtTime(maxDuration); // ensure arrival frame runs before isPlaying flips
+          setIsPlaying(false);
+          syncAudioPlayback();
+          return;
         }
         setCurrentTime(elapsed); applyKeyframesAtTime(elapsed);
         animationRef.current = requestAnimationFrame(animate);
@@ -313,9 +317,13 @@ export function Timeline() {
   };
 
   const handleDrawPath = () => {
-    if (!selectedObjectId) { toast.error("Select a visual track first"); return; }
+    if (!selectedObjectId) { toast.error("Select a track first"); return; }
     const track = tracks.find((t) => t.id === selectedObjectId);
     if (!track || track.type !== "visual") { toast.error("Path animation only works on visual objects"); return; }
+    const isCharacter = (track.fabricObject as any)?.customType === "character";
+    if (isCharacter) {
+      toast.info("Draw a path — then choose how the character moves!");
+    }
     setPathDrawMode(true, selectedObjectId);
   };
 

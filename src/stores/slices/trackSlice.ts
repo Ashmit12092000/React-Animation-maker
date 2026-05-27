@@ -36,6 +36,10 @@ export interface TrackSlice {
   // Path animation
   assignPathToTrack: (trackId: string, pathAnim: PathAnimation) => void;
   removePathFromTrack: (trackId: string) => void;
+
+  // Character animation control
+  setCharacterAnimation: (trackId: string, animName: string) => void;
+  commitCharacterPathAction: (trackId: string, travelAnim: string, arrivalBehavior: "keep" | "idle") => void;
 }
 
 export const createTrackSlice: StateCreator<EditorState, [], [], TrackSlice> = (set, get) => ({
@@ -302,7 +306,18 @@ export const createTrackSlice: StateCreator<EditorState, [], [], TrackSlice> = (
       if (!track.fabricObject) return;
       track.fabricObject.set({ selectable: true, evented: true });
 
-      if (time < track.startTime || time > track.endTime) {
+      // For tracks with a path animation, never cull after endTime —
+      // the character must stay at the destination so the arrival
+      // animation (e.g. Idle) keeps playing instead of disappearing.
+      const hasPath = !!(track.pathAnimation && track.pathAnimation.points.length > 1);
+      if (time < track.startTime || (!hasPath && time > track.endTime)) {
+        if (canvas && canvas.contains(track.fabricObject)) {
+          canvas.remove(track.fabricObject);
+        }
+        return;
+      }
+      // Hide path-animated tracks that haven't started yet
+      if (hasPath && time < track.startTime) {
         if (canvas && canvas.contains(track.fabricObject)) {
           canvas.remove(track.fabricObject);
         }
@@ -327,19 +342,53 @@ export const createTrackSlice: StateCreator<EditorState, [], [], TrackSlice> = (
       }
 
       if (track.pathAnimation && track.pathAnimation.points.length > 1) {
-        const pa = track.pathAnimation;
+        const pa       = track.pathAnimation;
+        const action   = (track as any).pendingPathAction as { travelAnim: string; arrivalBehavior: "keep" | "idle" } | null;
         const trackDur = track.endTime - track.startTime;
-        const rawT = trackDur > 0 ? (time - track.startTime) / trackDur : 0;
+        const rawT     = trackDur > 0 ? (time - track.startTime) / trackDur : 0;
         const clampedT = Math.max(0, Math.min(1, rawT * (pa.speed ?? 1)));
-        const cumLengths = buildCumulativeLengths(pa.points);
+
+        const cumLengths    = buildCumulativeLengths(pa.points);
         const { x, y, angle } = getPositionAtT(pa.points, cumLengths, clampedT);
-        const offset = pa.originOffset ?? { x: 0, y: 0 };
-        track.fabricObject.set({ left: x + offset.x, top: y + offset.y });
-        if (pa.orientToPath) {
-          track.fabricObject.set({ angle });
-        }
+        const offset  = pa.originOffset ?? { x: 0, y: 0 };
+        const newLeft = x + offset.x;
+        const newTop  = y + offset.y;
+
+        track.fabricObject.set({ left: newLeft, top: newTop });
+        if (pa.orientToPath) track.fabricObject.set({ angle });
         track.fabricObject.setCoords();
         track.fabricObject.dirty = true;
+
+        // Sync PIXI DragonBones display position
+        const display = (track.fabricObject as any).armatureDisplay;
+        if (display) {
+          const dbScale = (track.fabricObject as any).dbScale ?? 1;
+          const charW   = (track.fabricObject as any).charW   ?? (track.fabricObject.width  || 103);
+          const charH   = (track.fabricObject as any).charH   ?? (track.fabricObject.height || 300);
+          const usx = track.fabricObject.scaleX || 1;
+          const usy = track.fabricObject.scaleY || 1;
+          display.x = newLeft + (charW * usx) / 2;
+          display.y = newTop  +  charH * usy;
+          display.scale.set(dbScale * Math.max(usx, usy));
+
+          if (action) {
+            if (clampedT >= 1) {
+              // Path complete → switch to arrival animation.
+              // No isPlaying guard here — this must fire even on the final
+              // frame when isPlaying has just flipped to false.
+              const arrivalAnim = action.arrivalBehavior === "idle" ? "Idle" : action.travelAnim;
+              if (display.animation.lastAnimationName !== arrivalAnim) {
+                display.animation.play(arrivalAnim, 0);
+              }
+            } else if (isPlaying) {
+              // Path in progress → only switch during active playback,
+              // not while scrubbing, so pausing doesn't snap the anim.
+              if (display.animation.lastAnimationName !== action.travelAnim) {
+                display.animation.play(action.travelAnim, 0);
+              }
+            }
+          }
+        }
       }
     });
 
@@ -449,6 +498,38 @@ export const createTrackSlice: StateCreator<EditorState, [], [], TrackSlice> = (
     set((state) => ({
       tracks: state.tracks.map((t) =>
         t.id === trackId ? { ...t, pathAnimation: null } : t
+      ),
+    }));
+  },
+
+  setCharacterAnimation: (trackId, animName) => {
+    set((state) => ({
+      tracks: state.tracks.map((t) =>
+        t.id === trackId ? { ...t, characterAnimation: animName } : t
+      ),
+    }));
+    // Actually switch the DragonBones display
+    const track = get().tracks.find((t) => t.id === trackId);
+    const display = (track?.fabricObject as any)?.armatureDisplay;
+    if (display) {
+      display.animation.play(animName, 0);
+    }
+  },
+
+  commitCharacterPathAction: (trackId, travelAnim, arrivalBehavior) => {
+    // Only store the intent — do NOT switch the DragonBones animation here.
+    // The actual switch happens inside applyKeyframesAtTime when playback
+    // starts, so the character only changes animation once Play is pressed.
+    set((state) => ({
+      tracks: state.tracks.map((t) =>
+        t.id === trackId
+          ? {
+              ...t,
+              // Keep characterAnimation as the current idle state so the
+              // character stays visually unchanged until Play is pressed.
+              pendingPathAction: { travelAnim: travelAnim as any, arrivalBehavior },
+            }
+          : t
       ),
     }));
   },

@@ -36,10 +36,11 @@ import {
 // 1. Define High-Level Categories
 type PanelTab = "elements" | "text" | "media" | "characters" | "draw";
 
+// icon field repurposed as emoji preview; name must match DragonBones animation name exactly
 const characterAssets: Asset[] = [
-  { id: 'char-idle', name: 'stand', type: 'character', src: 'dragonbones/characte_2_tex.png' },
-  { id: 'char-walk', name: 'walk', type: 'character', src: 'dragonbones/characte_2_tex.png' },
-  { id: 'char-run', name: 'run', type: 'character', src: 'dragonbones/characte_2_tex.png' },
+  { id: 'char-idle', name: 'Idle', type: 'character', icon: '🧍', color: '#6366f1' },
+  { id: 'char-walk', name: 'walk', type: 'character', icon: '🚶', color: '#22c55e' },
+  { id: 'char-run',  name: 'run',  type: 'character', icon: '🏃', color: '#f97316' },
 ];
 
 
@@ -619,23 +620,33 @@ export function AssetPanel() {
               <p className="text-xs text-muted-foreground mt-1">Drag and drop characters onto the canvas</p>
             </div>
             <div className="flex-1 overflow-y-auto p-4 custom-scrollbar">
-              <div className="grid grid-cols-2 gap-3">
+              <p className="text-xs text-muted-foreground mb-3">
+                Drag onto the canvas to animate
+              </p>
+              <div className="flex flex-col gap-3">
                 {characterAssets.map((asset) => (
                   <div
                     key={asset.id}
                     draggable
                     onDragStart={(e) => handleDragStart(e, asset)}
-                    className="group relative aspect-square rounded-xl bg-secondary border border-panel-border hover:border-primary/50 cursor-grab active:cursor-grabbing overflow-hidden transition-all"
+                    className="group flex items-center gap-3 p-3 rounded-xl bg-secondary border border-panel-border hover:border-primary/50 cursor-grab active:cursor-grabbing transition-all select-none"
                   >
-                    <img
-                      src={asset.src}
-                      alt={asset.name}
-                      className="w-full h-full object-cover"
-                    />
-                    <div className="absolute inset-x-0 bottom-0 bg-black/60 p-1 translate-y-full group-hover:translate-y-0 transition-transform">
-                      <p className="text-[10px] text-white text-center truncate">
-                        {asset.name}
-                      </p>
+                    {/* Emoji preview circle */}
+                    <div
+                      className="w-12 h-12 rounded-lg flex items-center justify-center text-2xl shrink-0"
+                      style={{ backgroundColor: (asset.color ?? '#6366f1') + '33' }}
+                    >
+                      {asset.icon}
+                    </div>
+                    <div className="flex-1 min-w-0">
+                      <p className="text-sm font-medium text-foreground capitalize">{asset.name}</p>
+                      <p className="text-[10px] text-muted-foreground">Drag to canvas</p>
+                    </div>
+                    {/* Drag handle indicator */}
+                    <div className="opacity-0 group-hover:opacity-100 transition-opacity">
+                      <svg className="w-4 h-4 text-muted-foreground" fill="currentColor" viewBox="0 0 24 24">
+                        <path d="M8 6a2 2 0 1 0 0-4 2 2 0 0 0 0 4zm0 8a2 2 0 1 0 0-4 2 2 0 0 0 0 4zm0 8a2 2 0 1 0 0-4 2 2 0 0 0 0 4zm8-16a2 2 0 1 0 0-4 2 2 0 0 0 0 4zm0 8a2 2 0 1 0 0-4 2 2 0 0 0 0 4zm0 8a2 2 0 1 0 0-4 2 2 0 0 0 0 4z" />
+                      </svg>
                     </div>
                   </div>
                 ))}
