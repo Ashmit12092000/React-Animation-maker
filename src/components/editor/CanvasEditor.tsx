@@ -13,16 +13,16 @@ import * as PIXI from "pixi.js";
 import { useEditorStore, type Asset } from "@/stores/editorStore";
 import { ContextMenu } from "./ContextMenu";
 import { PathDrawOverlay } from "./PathDrawOverlay";
+import { DragonBonesRenderer, loadDragonBonesData } from "@/lib/dragonbonesRenderer";
 
 (window as any).PIXI = PIXI;
-
-declare const dragonBones: any;
 
 export function CanvasEditor() {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const pixiCanvasRef = useRef<HTMLCanvasElement>(null);
   const fabricRef = useRef<FabricCanvas | null>(null);
   const pixiAppRef = useRef<PIXI.Application | null>(null);
+  const renderersRef = useRef<DragonBonesRenderer[]>([]);
 
 
   const {
@@ -91,6 +91,14 @@ export function CanvasEditor() {
           pixiApp.ticker.start();
           console.log("Started PIXI ticker");
         }
+        
+        // Add ticker callback for animation updates
+        pixiApp.ticker.add((ticker) => {
+          // Update all active DragonBones renderers
+          renderersRef.current.forEach(renderer => {
+            renderer.update(ticker.deltaMS);
+          });
+        });
       } catch (err) {
         console.error("Failed to initialize PIXI app:", err);
       }
@@ -484,7 +492,11 @@ export function CanvasEditor() {
     } else if (asset.type === "character") {
       const SKE_URL = "/dragonbones/characte_2_ske.json";
       const TEX_URL = "/dragonbones/characte_2_tex.json";
-      const IMG_URL = "/dragonbones/characte_2_tex.png";
+      // Try loading from source folder first, then fallback to public
+      const IMG_URLS = [
+        "/DRAGONBONES IWR Loops JSON/DRAGONBONES IWR Loops JSON/exports/characte_2_tex.png",
+        "/dragonbones/characte_2_tex.png",
+      ];
       const ARMATURE_NAME = "Armature";
 
       // Cache loaded data on the window to avoid re-fetching
@@ -510,133 +522,64 @@ export function CanvasEditor() {
       // Add to canvas and timeline immediately (synchronous)
       addObjectToCanvas(proxy, id, asset);
 
-      // Then asynchronously load and render the PIXI armature
-      const buildCharacter = (skeData: any, texData: any, texture: PIXI.Texture) => {
+      // Then asynchronously load and render the PIXI armature using custom renderer
+      const buildCharacter = async () => {
         try {
+          console.log("[DragonBones] Starting custom renderer setup...");
+          
           const pixiApp = pixiAppRef.current;
           if (!pixiApp) {
-            console.warn("PIXI app not available, character will display as proxy only");
+            console.warn("[DragonBones] PIXI app not available");
             return;
           }
 
-          console.log("Building character with armature:", ARMATURE_NAME, "from data:", skeData.name);
+          // Load skeleton, texture data, and image using custom loader
+          console.log("[DragonBones] Loading DragonBones data...");
+          const { data, atlas, texture } = await loadDragonBonesData(
+            SKE_URL,
+            TEX_URL,
+            IMG_URLS
+          );
 
-          // Reuse or create a singleton factory (dragonBones expects one per armature dataset)
-          let factory: any = (window as any).__dbFactory;
-          if (!factory) {
-            factory = dragonBones.PixiFactory.factory;
-            (window as any).__dbFactory = factory;
-          }
-
-          const dataName = skeData.name;
+          // Create renderer
+          console.log("[DragonBones] Creating DragonBonesRenderer...");
+          const renderer = new DragonBonesRenderer(data, atlas, texture);
           
-          // Check if data already exists
-          if (!factory.getDragonBonesData(dataName)) {
-            console.log("Parsing DragonBones data:", dataName);
-            factory.parseDragonBonesData(skeData);
-            factory.parseTextureAtlasData(texData, texture);
+          const armature = renderer.getArmature();
+          
+          // Position and add to stage
+          armature.x = baseLeft + 100;
+          armature.y = baseTop + 100;
+          armature.scale.set(1);
+          
+          pixiApp.stage.addChild(armature);
+          console.log("[DragonBones] Armature added to PIXI stage at position:", armature.x, armature.y);
+
+          // Play first available animation
+          const animations = renderer.getAnimations();
+          if (animations.length > 0) {
+            console.log("[DragonBones] Available animations:", animations);
+            renderer.play(animations[0], 0);
+            console.log("[DragonBones] Playing animation:", animations[0]);
           } else {
-            console.log("DragonBones data already exists:", dataName);
+            console.log("[DragonBones] No animations found in armature (static model)");
           }
 
-          // Get first armature name from skeleton
-          const firstArmatureName = skeData.armature?.[0]?.name || ARMATURE_NAME;
-          console.log("Available armatures:", skeData.armature?.map((a: any) => a.name));
+          // Store reference
+          (proxy as any).armature = armature;
+          (proxy as any).renderer = renderer;
           
-          const armatureDisplay = factory.buildArmatureDisplay(firstArmatureName, dataName);
-          if (!armatureDisplay) {
-            console.error(`Failed to build ArmatureDisplay for armature '${firstArmatureName}' in data '${dataName}'`);
-            return;
-          }
+          // Add to active renderers for animation updates
+          renderersRef.current.push(renderer);
+          console.log("[DragonBones] Renderer added to animation loop. Active renderers:", renderersRef.current.length);
 
-          console.log("Built armature successfully, available animations:", Object.keys(armatureDisplay.animation.animations));
-
-          // Map asset names to animation names
-          const animationNameMap: Record<string, string> = {
-            'stand': 'Idle',
-            'walk': 'walk',
-            'run': 'run'
-          };
-
-          const animationName = animationNameMap[asset.name] || asset.name;
-
-          // Try to play the animation if it exists
-          if (armatureDisplay.animation.animations[animationName]) {
-            console.log(`Playing animation: '${animationName}'`);
-            armatureDisplay.animation.play(animationName, 0); // 0 = loop forever
-          } else {
-            console.warn(`Animation '${animationName}' not found for asset '${asset.name}'`);
-            // Try to play first available animation
-            const animations = Object.keys(armatureDisplay.animation.animations);
-            if (animations.length > 0) {
-              console.log(`Playing default animation: '${animations[0]}'`);
-              armatureDisplay.animation.play(animations[0], 0);
-            }
-          }
-
-          // Position the armature at the center of the proxy
-          armatureDisplay.x = baseLeft + 100;  // center of proxySize=200
-          armatureDisplay.y = baseTop + 100;
-          armatureDisplay.scale.set(1);
-          
-          console.log(`Positioning armature at (${armatureDisplay.x}, ${armatureDisplay.y})`);
-          
-          pixiApp.stage.addChild(armatureDisplay);
-          console.log("Armature added to PIXI stage, total children:", pixiApp.stage.children.length);
-
-          // Store reference to armature so it moves with the proxy
-          (proxy as any).armature = armatureDisplay;
-
-        } catch (e) {
-          console.error("Error building DragonBones armature:", e);
-          console.warn("Character added to timeline and canvas but PIXI rendering failed");
-        }
-      };
-
-      const loadAndBuild = async () => {
-        try {
-          console.log("Starting DragonBones asset loading...");
-          // Use PIXI v8 Assets API (replaces the removed v5 loader)
-          if (!cache.skeData) {
-            console.log("Loading skeleton and texture data from:", SKE_URL, TEX_URL);
-            const [skeData, texData] = await Promise.all([
-              fetch(SKE_URL).then(r => r.json()),
-              fetch(TEX_URL).then(r => r.json()),
-            ]);
-            cache.skeData = skeData;
-            cache.texData = texData;
-            console.log("Skeleton and texture data loaded successfully");
-          }
-          if (!cache.texture) {
-            console.log("Loading texture image from:", IMG_URL);
-            try {
-              cache.texture = await PIXI.Assets.load(IMG_URL);
-              console.log("Texture loaded successfully");
-            } catch (imgErr) {
-              console.warn("PIXI.Assets.load failed, trying alternative method:", imgErr);
-              // Fallback: Load image using direct fetch and create PIXI texture
-              const response = await fetch(IMG_URL);
-              if (!response.ok) {
-                throw new Error(`Failed to fetch image: ${response.statusText}`);
-              }
-              const blob = await response.blob();
-              const objectUrl = URL.createObjectURL(blob);
-              try {
-                cache.texture = await PIXI.Assets.load(objectUrl);
-                console.log("Texture loaded via blob URL");
-              } finally {
-                URL.revokeObjectURL(objectUrl);
-              }
-            }
-          }
-          buildCharacter(cache.skeData, cache.texData, cache.texture);
         } catch (err) {
-          console.error("Failed to load DragonBones assets:", err);
-          console.warn("Character has been added to timeline and canvas as a proxy. PIXI rendering failed.");
+          console.error("[DragonBones] Error building character:", err);
+          console.warn("[DragonBones] Character remains as placeholder");
         }
       };
 
-      loadAndBuild();
+      buildCharacter();
     } else if (asset.type === "video") {
         const videoEl = createVideoElement(asset.src!);
 

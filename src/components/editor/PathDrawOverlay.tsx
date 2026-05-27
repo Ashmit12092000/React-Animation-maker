@@ -164,8 +164,10 @@ export function PathDrawOverlay({ canvasWidth, canvasHeight }: Props) {
           y={0}
           width={canvasWidth}
           height={canvasHeight}
-          fill="rgba(99,102,241,0.06)"
-          stroke="rgba(99,102,241,0.3)"
+          fill="#6366f1"
+          fillOpacity={0.06}
+          stroke="#6366f1"
+          strokeOpacity={0.3}
           strokeWidth={2}
           strokeDasharray="8 6"
           rx={4}
@@ -177,7 +179,8 @@ export function PathDrawOverlay({ canvasWidth, canvasHeight }: Props) {
             <path
               d={previewD}
               fill="none"
-              stroke="rgba(167,139,250,0.35)"
+              stroke="#a78bfa"
+              strokeOpacity={0.35}
               strokeWidth={14}
               strokeLinecap="round"
               strokeLinejoin="round"
