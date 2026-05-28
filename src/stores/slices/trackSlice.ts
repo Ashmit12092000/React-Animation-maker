@@ -40,6 +40,7 @@ export interface TrackSlice {
   // Character animation control
   setCharacterAnimation: (trackId: string, animName: string) => void;
   commitCharacterPathAction: (trackId: string, travelAnim: string, arrivalBehavior: "keep" | "idle") => void;
+  commitCharacterSequenceAction: (trackId: string, steps: import("../../types").SequenceStep[]) => void;
 }
 
 export const createTrackSlice: StateCreator<EditorState, [], [], TrackSlice> = (set, get) => ({
@@ -120,41 +121,64 @@ export const createTrackSlice: StateCreator<EditorState, [], [], TrackSlice> = (
 
     const newTrackId = `${trackToSplit.id}_split_${Date.now()}`;
 
+    // Split keyframes at the split time
     const rightKeyframes = trackToSplit.keyframes.filter(k => k.time > splitTime);
     const leftKeyframes = trackToSplit.keyframes.filter(k => k.time <= splitTime);
 
-    let newFabricObject = null;
-    let newAudioElement = null;
+    // Update left track (the part before split time)
+    const updatedLeftTrack: TrackObject = {
+      ...trackToSplit,
+      endTime: splitTime,
+      keyframes: leftKeyframes,
+      name: `${trackToSplit.name}`,
+    };
+
+    // Create right track (the part after split time) - without fabricObject initially
+    const rightTrack: TrackObject = {
+      ...trackToSplit,
+      id: newTrackId,
+      startTime: splitTime,
+      endTime: oldEndTime,
+      keyframes: rightKeyframes,
+      mediaOffset: newMediaOffset,
+      name: `${trackToSplit.name}`,
+      volume: trackToSplit.volume ?? 1,
+      fabricObject: null, // Will be set asynchronously if needed
+      audioElement: null,
+    };
+
+    // Handle fabric objects and media cloning
+    let newFabricObject: any = null;
+    let newAudioElement: HTMLAudioElement | null = null;
 
     if (trackToSplit.type === "visual") {
       if (trackToSplit.fabricObject) {
         trackToSplit.fabricObject.clone().then((cloned: any) => {
-          newFabricObject = cloned;
-          newFabricObject.set({
+          cloned.set({
             left: trackToSplit.fabricObject!.left,
             top: trackToSplit.fabricObject!.top,
             _customId: newTrackId,
             customType: (trackToSplit.fabricObject as any).customType
           });
-          (newFabricObject as any)._assetName = `${trackToSplit.name}`;
-          try { newFabricObject.name = `${trackToSplit.name}`; } catch (e) {}
+          (cloned as any)._assetName = trackToSplit.name;
+          try { cloned.name = trackToSplit.name; } catch (e) {}
+          
           if (canvas) {
-            canvas.add(newFabricObject);
+            canvas.add(cloned);
             canvas.renderAll();
-            canvas.setActiveObject(newFabricObject);
           }
+          
+          // Update the right track with the fabricObject
           set((state) => ({
             tracks: state.tracks.map((t) =>
-              t.id === newTrackId ? { ...t, fabricObject: newFabricObject } : t,
+              t.id === newTrackId ? { ...t, fabricObject: cloned } : t
             ),
-            selectedObjectId: newTrackId,
-            selectedObject: newFabricObject,
           }));
         });
       }
     } else if (trackToSplit.type === "video") {
       const oldVideoEl = (trackToSplit.fabricObject as any)?._element;
-      if (oldVideoEl) {
+      if (oldVideoEl && trackToSplit.fabricObject) {
         const newVideoEl = document.createElement("video");
         newVideoEl.src = oldVideoEl.src;
         newVideoEl.crossOrigin = "anonymous";
@@ -162,16 +186,27 @@ export const createTrackSlice: StateCreator<EditorState, [], [], TrackSlice> = (
         newVideoEl.width = oldVideoEl.width;
         newVideoEl.height = oldVideoEl.height;
 
-        const fabObj = trackToSplit.fabricObject!;
+        const fabObj = trackToSplit.fabricObject;
         newFabricObject = new FabricImage(newVideoEl, {
-          left: fabObj.left, top: fabObj.top, scaleX: fabObj.scaleX, scaleY: fabObj.scaleY, angle: fabObj.angle, opacity: fabObj.opacity, objectCaching: false,
+          left: fabObj.left,
+          top: fabObj.top,
+          scaleX: fabObj.scaleX,
+          scaleY: fabObj.scaleY,
+          angle: fabObj.angle,
+          opacity: fabObj.opacity,
+          objectCaching: false,
         });
         (newFabricObject as any)._customId = newTrackId;
         (newFabricObject as any).customType = "video";
         (newFabricObject as any)._element = newVideoEl;
-        (newFabricObject as any)._assetName = `${trackToSplit.name}`;
-        try { (newFabricObject as any).name = `${trackToSplit.name}`; } catch (e) {}
-        if (canvas) canvas.add(newFabricObject);
+        (newFabricObject as any)._assetName = trackToSplit.name;
+        
+        try { (newFabricObject as any).name = trackToSplit.name; } catch (e) {}
+        
+        if (canvas) {
+          canvas.add(newFabricObject);
+          canvas.renderAll();
+        }
       }
     } else if (trackToSplit.type === "audio") {
       if (trackToSplit.audioElement) {
@@ -182,31 +217,23 @@ export const createTrackSlice: StateCreator<EditorState, [], [], TrackSlice> = (
       }
     }
 
-    const rightTrack: TrackObject = {
-      ...trackToSplit,
-      id: newTrackId,
-      startTime: splitTime + 1,
-      endTime: oldEndTime,
-      keyframes: rightKeyframes,
-      fabricObject: newFabricObject,
-      audioElement: newAudioElement,
-      mediaOffset: newMediaOffset,
-      name: `${trackToSplit.name}`,
-      volume: trackToSplit.volume ?? 1,
-    };
+    // Update state with the split tracks
+    set((state) => {
+      const trackIdx = state.tracks.findIndex((t) => t.id === trackToSplit.id);
+      if (trackIdx === -1) return state;
 
-    const updatedLeftTrack = {
-      ...trackToSplit,
-      endTime: splitTime,
-      keyframes: leftKeyframes
-    };
+      // Create new tracks array with updated left track and inserted right track
+      const updatedTracks = state.tracks.slice(); // Create shallow copy
+      updatedTracks[trackIdx] = updatedLeftTrack;
 
-    set(state => {
-      const parentIdx = state.tracks.findIndex(t => t.id === trackToSplit.id);
-      const updatedTracks = state.tracks.map(t =>
-        t.id === trackToSplit.id ? updatedLeftTrack : t
-      );
-      updatedTracks.splice(parentIdx + 1, 0, rightTrack);
+      // Insert right track immediately after left track
+      if (newFabricObject || newAudioElement) {
+        const rightTrackWithMedia = { ...rightTrack, fabricObject: newFabricObject, audioElement: newAudioElement };
+        updatedTracks.splice(trackIdx + 1, 0, rightTrackWithMedia);
+      } else {
+        updatedTracks.splice(trackIdx + 1, 0, rightTrack);
+      }
+
       return {
         tracks: updatedTracks,
         selectedObjectId: newTrackId,
@@ -306,18 +333,19 @@ export const createTrackSlice: StateCreator<EditorState, [], [], TrackSlice> = (
       if (!track.fabricObject) return;
       track.fabricObject.set({ selectable: true, evented: true });
 
-      // For tracks with a path animation, never cull after endTime —
+      // For tracks with a path animation (or sequence action), never cull after endTime —
       // the character must stay at the destination so the arrival
       // animation (e.g. Idle) keeps playing instead of disappearing.
       const hasPath = !!(track.pathAnimation && track.pathAnimation.points.length > 1);
-      if (time < track.startTime || (!hasPath && time > track.endTime)) {
+      const hasSequence = !!((track as any).sequenceAction?.steps?.length);
+      if (time < track.startTime || (!(hasPath || hasSequence) && time > track.endTime)) {
         if (canvas && canvas.contains(track.fabricObject)) {
           canvas.remove(track.fabricObject);
         }
         return;
       }
-      // Hide path-animated tracks that haven't started yet
-      if (hasPath && time < track.startTime) {
+      // Hide path-animated / sequence tracks that haven't started yet
+      if ((hasPath || hasSequence) && time < track.startTime) {
         if (canvas && canvas.contains(track.fabricObject)) {
           canvas.remove(track.fabricObject);
         }
@@ -344,9 +372,44 @@ export const createTrackSlice: StateCreator<EditorState, [], [], TrackSlice> = (
       if (track.pathAnimation && track.pathAnimation.points.length > 1) {
         const pa       = track.pathAnimation;
         const action   = (track as any).pendingPathAction as { travelAnim: string; arrivalBehavior: "keep" | "idle" } | null;
+        const seqAction = (track as any).sequenceAction as import("../../types").CharacterSequenceAction | null;
         const trackDur = track.endTime - track.startTime;
-        const rawT     = trackDur > 0 ? (time - track.startTime) / trackDur : 0;
-        const clampedT = Math.max(0, Math.min(1, rawT * (pa.speed ?? 1)));
+        const elapsed  = Math.max(0, time - track.startTime);
+
+        // Determine effective T (0..1) along the path
+        let clampedT: number;
+        if (seqAction && seqAction.steps.length > 0) {
+          // Walk through sequence steps to find current position
+          let cursor = 0;
+          let effectiveT = 1; // default: end of path
+          for (const step of seqAction.steps) {
+            const stepEnd = cursor + step.duration;
+            if (elapsed <= stepEnd || step === seqAction.steps[seqAction.steps.length - 1]) {
+              if (step.pathSegment) {
+                // Lerp within this step's path segment
+                const stepProgress = step.duration > 0 ? Math.min(1, (elapsed - cursor) / step.duration) : 1;
+                effectiveT = step.pathSegment.from + stepProgress * (step.pathSegment.to - step.pathSegment.from);
+              } else {
+                // Stationary step — stay at the "from" position of the NEXT path step (or last reached position)
+                // Find the last path segment endpoint before this step
+                let lastPathEnd = 0;
+                let c2 = 0;
+                for (const s2 of seqAction.steps) {
+                  if (s2 === step) break;
+                  if (s2.pathSegment) lastPathEnd = s2.pathSegment.to;
+                  c2 += s2.duration;
+                }
+                effectiveT = lastPathEnd;
+              }
+              break;
+            }
+            cursor = stepEnd;
+          }
+          clampedT = Math.max(0, Math.min(1, effectiveT));
+        } else {
+          const rawT  = trackDur > 0 ? elapsed / trackDur : 0;
+          clampedT    = Math.max(0, Math.min(1, rawT * (pa.speed ?? 1)));
+        }
 
         const cumLengths    = buildCumulativeLengths(pa.points);
         const { x, y, angle } = getPositionAtT(pa.points, cumLengths, clampedT);
@@ -371,7 +434,23 @@ export const createTrackSlice: StateCreator<EditorState, [], [], TrackSlice> = (
           display.y = newTop  +  charH * usy;
           display.scale.set(dbScale * Math.max(usx, usy));
 
-          if (action) {
+          // ── Sequence action ──────────────────────────────────────────────
+          // NOTE: seqAction is already declared above (line ~348); use it directly.
+          if (seqAction && seqAction.steps.length > 0) {
+            // Walk the steps and figure out which one we're currently in
+            let seqCursor = 0;
+            let activeAnim: string = seqAction.steps[seqAction.steps.length - 1].animation;
+            for (const step of seqAction.steps) {
+              if (elapsed < seqCursor + step.duration || step === seqAction.steps[seqAction.steps.length - 1]) {
+                activeAnim = step.animation;
+                break;
+              }
+              seqCursor += step.duration;
+            }
+            if (display.animation.lastAnimationName !== activeAnim) {
+              display.animation.play(activeAnim, 0);
+            }
+          } else if (action) {
             if (clampedT >= 1) {
               // Path complete → switch to arrival animation.
               // No isPlaying guard here — this must fire even on the final
@@ -534,17 +613,34 @@ export const createTrackSlice: StateCreator<EditorState, [], [], TrackSlice> = (
     }));
   },
 
+  commitCharacterSequenceAction: (trackId, steps) => {
+    set((state) => ({
+      tracks: state.tracks.map((t) =>
+        t.id === trackId
+          ? {
+              ...t,
+              pendingPathAction: null,
+              sequenceAction: { steps },
+            }
+          : t
+      ),
+    }));
+  },   
+
   syncAudioPlayback: () => {
-    const { tracks, isPlaying, currentTime } = get();
+    const { tracks, currentTime, isPlaying } = get();
+
     tracks.forEach((track) => {
-      const mediaElement = track.audioElement || (track.fabricObject as any)?._element;
+      const mediaElement: HTMLAudioElement | HTMLVideoElement | null =
+        track.audioElement ?? ((track.fabricObject as any)?._element ?? null);
+
       if (!mediaElement || !(mediaElement instanceof HTMLAudioElement || mediaElement instanceof HTMLVideoElement)) return;
 
-      if (mediaElement.volume !== track.volume) {
-        mediaElement.volume = track.volume;
+      if (mediaElement.volume !== (track.volume ?? 1)) {
+        mediaElement.volume = track.volume ?? 1;
       }
-      mediaElement.muted = track.volume === 0;
-      
+      mediaElement.muted = (track.volume ?? 1) === 0;
+
       const isInRange = currentTime >= track.startTime && currentTime < track.endTime;
 
       if (isPlaying && isInRange) {

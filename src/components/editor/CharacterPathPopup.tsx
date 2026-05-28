@@ -8,6 +8,7 @@
  *   - If Idle → offer Walk and Run
  *   - If Walk → offer Run (and keep Walk)
  *   - If Run  → offer Walk (and keep Run)
+ *   - Always offers "Sequence Builder" to open the advanced choreography popup
  *
  * Stage 2 — "Arrival" popup:
  *   After the user picks a travel animation, ask what to do when the
@@ -32,6 +33,8 @@ interface Props {
   pathEndPoint: { x: number; y: number } | null; // canvas-space coords
   canvasEl: HTMLCanvasElement | null;
   onClose: () => void;
+  /** Called when the user clicks "Sequence Builder" */
+  onSequenceBuilder: () => void;
 }
 
 const ANIM_LABELS: Record<CharacterAnimName, string> = {
@@ -52,7 +55,7 @@ const ANIM_COLORS: Record<CharacterAnimName, string> = {
   run:  "#f97316",
 };
 
-export function CharacterPathPopup({ trackId, pathEndPoint, canvasEl, onClose }: Props) {
+export function CharacterPathPopup({ trackId, pathEndPoint, canvasEl, onClose, onSequenceBuilder }: Props) {
   const { tracks, commitCharacterPathAction } = useEditorStore();
 
   const [stage, setStage] = useState<"travel" | "arrival">("travel");
@@ -63,14 +66,30 @@ export function CharacterPathPopup({ trackId, pathEndPoint, canvasEl, onClose }:
   const currentAnim = (track?.characterAnimation ?? "Idle") as CharacterAnimName;
 
   // Map canvas coords → screen coords using the canvas element's bounding rect
+  // Also apply boundary checking to keep popup within canvas bounds
   useEffect(() => {
     if (!pathEndPoint || !canvasEl) return;
     const rect = canvasEl.getBoundingClientRect();
     const scaleX = rect.width  / (canvasEl.width  || rect.width);
     const scaleY = rect.height / (canvasEl.height || rect.height);
+    let screenX = rect.left + pathEndPoint.x * scaleX;
+    let screenY = rect.top  + pathEndPoint.y * scaleY;
+    
+    // Clamp to canvas bounds with some padding
+    const popupWidth = 260;
+    const padding = 16;
+    
+    // Keep popup within horizontal canvas bounds
+    screenX = Math.max(rect.left + padding, Math.min(screenX, rect.right - padding - popupWidth));
+    
+    // Keep popup below the point but within canvas vertical bounds
+    const minY = rect.top + padding;
+    const maxY = rect.bottom - padding - 200; // Approximate popup height
+    screenY = Math.max(minY, Math.min(screenY, maxY));
+    
     setPos({
-      screenX: rect.left + pathEndPoint.x * scaleX,
-      screenY: rect.top  + pathEndPoint.y * scaleY,
+      screenX,
+      screenY,
     });
   }, [pathEndPoint, canvasEl]);
 
@@ -92,12 +111,12 @@ export function CharacterPathPopup({ trackId, pathEndPoint, canvasEl, onClose }:
     onClose();
   };
 
-  // Popup sits just above the path end-point, centred horizontally
+  // Popup sits just below the path end-point, centred horizontally
   const style: React.CSSProperties = {
     position:  "fixed",
     left:      pos.screenX,
-    top:       pos.screenY - 12,
-    transform: "translate(-50%, -100%)",
+    top:       pos.screenY + 12,
+    transform: "translate(-50%, 0%)",
     zIndex:    9999,
   };
 
@@ -107,14 +126,14 @@ export function CharacterPathPopup({ trackId, pathEndPoint, canvasEl, onClose }:
       <div
         style={{
           position: "absolute",
-          bottom: -7,
+          top: -7,
           left: "50%",
           transform: "translateX(-50%)",
           width: 0,
           height: 0,
           borderLeft: "8px solid transparent",
           borderRight: "8px solid transparent",
-          borderTop: "8px solid rgba(15,17,25,0.97)",
+          borderBottom: "8px solid rgba(15,17,25,0.97)",
         }}
       />
 
@@ -124,7 +143,7 @@ export function CharacterPathPopup({ trackId, pathEndPoint, canvasEl, onClose }:
           border:       "1px solid rgba(255,255,255,0.12)",
           borderRadius: 14,
           padding:      "14px 16px",
-          minWidth:     220,
+          minWidth:     240,
           boxShadow:    "0 8px 40px rgba(0,0,0,0.7), 0 0 0 1px rgba(99,102,241,0.2)",
           backdropFilter: "blur(12px)",
         }}
@@ -144,7 +163,8 @@ export function CharacterPathPopup({ trackId, pathEndPoint, canvasEl, onClose }:
               </p>
             </div>
 
-            <div style={{ display: "flex", gap: 8 }}>
+            {/* Simple travel options */}
+            <div style={{ display: "flex", gap: 8, marginBottom: 8 }}>
               {travelOptions.map((anim) => (
                 <button
                   key={anim}
@@ -180,10 +200,62 @@ export function CharacterPathPopup({ trackId, pathEndPoint, canvasEl, onClose }:
               ))}
             </div>
 
+            {/* ── Divider ── */}
+            <div
+              style={{
+                display: "flex",
+                alignItems: "center",
+                gap: 8,
+                margin: "10px 0 8px",
+              }}
+            >
+              <div style={{ flex: 1, height: 1, background: "rgba(255,255,255,0.08)" }} />
+              <span style={{ fontSize: 10, color: "#475569", letterSpacing: "0.05em" }}>OR</span>
+              <div style={{ flex: 1, height: 1, background: "rgba(255,255,255,0.08)" }} />
+            </div>
+
+            {/* ── Sequence Builder option ── */}
+            <button
+              onClick={onSequenceBuilder}
+              style={{
+                width:        "100%",
+                display:      "flex",
+                alignItems:   "center",
+                gap:          10,
+                padding:      "10px 12px",
+                borderRadius: 10,
+                border:       "1.5px solid rgba(99,102,241,0.4)",
+                background:   "rgba(99,102,241,0.1)",
+                cursor:       "pointer",
+                transition:   "all 0.15s",
+                color:        "#a5b4fc",
+                textAlign:    "left",
+                marginBottom: 8,
+              }}
+              onMouseEnter={(e) => {
+                (e.currentTarget as HTMLElement).style.background   = "rgba(99,102,241,0.2)";
+                (e.currentTarget as HTMLElement).style.borderColor  = "rgba(99,102,241,0.8)";
+              }}
+              onMouseLeave={(e) => {
+                (e.currentTarget as HTMLElement).style.background   = "rgba(99,102,241,0.1)";
+                (e.currentTarget as HTMLElement).style.borderColor  = "rgba(99,102,241,0.4)";
+              }}
+            >
+              <span style={{ fontSize: 20 }}>🎬</span>
+              <div>
+                <div style={{ fontSize: 12, fontWeight: 700, color: "#c7d2fe" }}>
+                  Sequence Builder
+                </div>
+                <div style={{ fontSize: 10, color: "#6366f1", marginTop: 1 }}>
+                  Idle → Walk → Stop → Run…
+                </div>
+              </div>
+              <span style={{ marginLeft: "auto", fontSize: 14, color: "#6366f1", opacity: 0.7 }}>›</span>
+            </button>
+
             <button
               onClick={onClose}
               style={{
-                marginTop:    10,
                 width:        "100%",
                 padding:      "6px 0",
                 borderRadius: 8,

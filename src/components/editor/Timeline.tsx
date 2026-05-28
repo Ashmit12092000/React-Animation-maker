@@ -336,6 +336,34 @@ export function Timeline() {
   const selectedTrack = tracks.find((t) => t.id === selectedObjectId);
   const hasPath = !!(selectedTrack?.pathAnimation);
   const [showVoiceRecorder, setShowVoiceRecorder] = useState(false);
+  const [trimDialog, setTrimDialog] = useState<{ trackId: string; startTime: number; endTime: number } | null>(null);
+
+  const handleOpenTrimDialog = () => {
+    if (!selectedObjectId || !selectedTrack) {
+      toast.error("Select a track first");
+      return;
+    }
+    setTrimDialog({
+      trackId: selectedObjectId,
+      startTime: selectedTrack.startTime,
+      endTime: selectedTrack.endTime,
+    });
+  };
+
+  const handleTrimTrack = (newStartTime: number, newEndTime: number) => {
+    if (!trimDialog) return;
+    if (newStartTime >= newEndTime) {
+      toast.error("Start time must be before end time");
+      return;
+    }
+    saveCheckpoint();
+    updateTrack(trimDialog.trackId, {
+      startTime: newStartTime,
+      endTime: newEndTime,
+    });
+    setTrimDialog(null);
+    toast.success("Track trimmed");
+  };
 
   const timeMarkers = isFinite(visibleDuration) ? Array.from({ length: Math.ceil(visibleDuration) + 1 }, (_, i) => i) : [];
 
@@ -412,6 +440,21 @@ export function Timeline() {
           >
             <SquareSplitHorizontal className="w-3.5 h-3.5" />
             Split
+          </button>
+
+          <button
+            onClick={handleOpenTrimDialog}
+            disabled={!selectedObjectId}
+            title="Trim Track"
+            className={cn(
+              "h-7 px-2.5 flex items-center gap-1.5 rounded-md text-xs font-medium transition-all border",
+              selectedObjectId
+                ? "bg-purple-500/15 text-purple-400 hover:bg-purple-500/25 border-purple-500/25 hover:border-purple-500/50"
+                : "text-gray-600 border-gray-700/50 cursor-not-allowed opacity-40",
+            )}
+          >
+            <SkipBack className="w-3.5 h-3.5" />
+            Trim
           </button>
 
           {hasPath ? (
@@ -791,6 +834,93 @@ export function Timeline() {
           </div>
         </div>
       </div>
+
+      {/* Trim Dialog */}
+      {trimDialog && (
+        <div className="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center z-50">
+          <div
+            className="rounded-lg shadow-2xl border p-6 w-96"
+            style={{
+              background: "linear-gradient(180deg, #0f1117 0%, #0a0d14 100%)",
+              borderColor: "rgba(255,255,255,0.1)",
+            }}
+          >
+            <h3 className="text-lg font-bold text-white mb-4">Trim Track</h3>
+
+            <div className="space-y-4">
+              {/* Start Time */}
+              <div>
+                <label className="text-xs font-semibold text-gray-400 block mb-2">Start Time (seconds)</label>
+                <input
+                  type="number"
+                  min={0}
+                  max={trimDialog.endTime - 0.1}
+                  step={0.1}
+                  value={trimDialog.startTime.toFixed(2)}
+                  onChange={(e) => setTrimDialog({ ...trimDialog, startTime: parseFloat(e.target.value) || 0 })}
+                  className="w-full px-3 py-2 rounded-md border border-purple-500/30 bg-purple-500/10 text-white focus:border-purple-500/60 focus:ring-2 focus:ring-purple-500/30 outline-none transition-all"
+                />
+                <div className="text-[10px] text-gray-500 mt-1">
+                  Track starts at: {selectedTrack?.startTime.toFixed(2)}s
+                </div>
+              </div>
+
+              {/* End Time */}
+              <div>
+                <label className="text-xs font-semibold text-gray-400 block mb-2">End Time (seconds)</label>
+                <input
+                  type="number"
+                  min={trimDialog.startTime + 0.1}
+                  max={selectedTrack?.endTime || 999}
+                  step={0.1}
+                  value={trimDialog.endTime.toFixed(2)}
+                  onChange={(e) => setTrimDialog({ ...trimDialog, endTime: parseFloat(e.target.value) || trimDialog.endTime })}
+                  className="w-full px-3 py-2 rounded-md border border-purple-500/30 bg-purple-500/10 text-white focus:border-purple-500/60 focus:ring-2 focus:ring-purple-500/30 outline-none transition-all"
+                />
+                <div className="text-[10px] text-gray-500 mt-1">
+                  Track ends at: {selectedTrack?.endTime.toFixed(2)}s
+                </div>
+              </div>
+
+              {/* Duration Preview */}
+              <div className="bg-purple-500/10 border border-purple-500/20 rounded-md p-3">
+                <div className="text-xs font-semibold text-purple-400 mb-2">Duration Preview</div>
+                <div className="flex items-center gap-3 text-sm">
+                  <div>
+                    <span className="text-gray-400">Original: </span>
+                    <span className="text-white font-mono">
+                      {(selectedTrack?.endTime || 0).toFixed(2)}s
+                    </span>
+                  </div>
+                  <div className="text-gray-600">→</div>
+                  <div>
+                    <span className="text-gray-400">Trimmed: </span>
+                    <span className="text-purple-300 font-mono">
+                      {(trimDialog.endTime - trimDialog.startTime).toFixed(2)}s
+                    </span>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            {/* Actions */}
+            <div className="flex gap-2 mt-6">
+              <button
+                onClick={() => setTrimDialog(null)}
+                className="flex-1 px-3 py-2 rounded-md border border-gray-600 text-gray-300 hover:bg-gray-600/20 transition-all text-sm font-medium"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={() => handleTrimTrack(trimDialog.startTime, trimDialog.endTime)}
+                className="flex-1 px-3 py-2 rounded-md bg-purple-600 text-white hover:bg-purple-700 transition-all text-sm font-medium"
+              >
+                Apply Trim
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       <KeyframeEditor />
     </div>

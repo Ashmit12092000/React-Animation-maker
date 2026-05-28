@@ -4,6 +4,7 @@ import { smoothPoints, buildCumulativeLengths } from "@/utils/pathAnimation";
 import type { PathPoint } from "@/types";
 import { toast } from "sonner";
 import { CharacterPathPopup } from "./CharacterPathPopup";
+import { CharacterSequencePopup } from "./CharacterSequencePopup";
 
 interface Props {
   canvasWidth:  number;
@@ -30,12 +31,18 @@ export function PathDrawOverlay({ canvasWidth, canvasHeight }: Props) {
     endPoint:  { x: number; y: number };
   } | null>(null);
 
-  // We need the Fabric canvas element to map canvas→screen coords in the popup
+  // When user picks "Sequence Builder" from the simple popup, switch to this
+  const [sequencePopup, setSequencePopup] = useState<{
+    trackId:  string;
+    endPoint: { x: number; y: number };
+  } | null>(null);
+
+  // We need the Fabric canvas element to map canvas→screen coords in the popups
   const [fabricCanvasEl, setFabricCanvasEl] = useState<HTMLCanvasElement | null>(null);
   useEffect(() => {
     // The Fabric <canvas> is the first sibling of our SVG (same parent wrapper)
     if (svgRef.current) {
-      const parent  = svgRef.current.closest(".relative.rounded-lg");
+      const parent   = svgRef.current.closest(".relative.rounded-lg");
       const canvasEl = parent?.querySelector("canvas") as HTMLCanvasElement | null;
       setFabricCanvasEl(canvasEl ?? null);
     }
@@ -138,7 +145,23 @@ export function PathDrawOverlay({ canvasWidth, canvasHeight }: Props) {
     }
   };
 
-  if (!pathDrawMode && !charPopup) return null;
+  // Switch from the simple popup to the sequence builder
+  const handleOpenSequenceBuilder = () => {
+    if (!charPopup) return;
+    const { trackId, endPoint } = charPopup;
+    setCharPopup(null);
+    setSequencePopup({ trackId, endPoint });
+  };
+
+  // Go back from sequence builder to the simple popup
+  const handleSequenceBack = () => {
+    if (!sequencePopup) return;
+    const { trackId, endPoint } = sequencePopup;
+    setSequencePopup(null);
+    setCharPopup({ trackId, endPoint });
+  };
+
+  if (!pathDrawMode && !charPopup && !sequencePopup) return null;
 
   const track = tracks.find((t) => t.id === pathDrawTargetId);
 
@@ -232,13 +255,25 @@ export function PathDrawOverlay({ canvasWidth, canvasHeight }: Props) {
         </div>
       )}
 
-      {/* Character action popup — rendered in a portal-like manner via fixed positioning */}
+      {/* Simple two-stage popup (existing behaviour) */}
       {charPopup && (
         <CharacterPathPopup
           trackId={charPopup.trackId}
           pathEndPoint={charPopup.endPoint}
           canvasEl={fabricCanvasEl}
           onClose={() => setCharPopup(null)}
+          onSequenceBuilder={handleOpenSequenceBuilder}
+        />
+      )}
+
+      {/* Advanced sequence builder popup */}
+      {sequencePopup && (
+        <CharacterSequencePopup
+          trackId={sequencePopup.trackId}
+          pathEndPoint={sequencePopup.endPoint}
+          canvasEl={fabricCanvasEl}
+          onClose={() => setSequencePopup(null)}
+          onBack={handleSequenceBack}
         />
       )}
     </>
