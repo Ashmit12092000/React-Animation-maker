@@ -36,21 +36,24 @@ const ANIM_LABELS: Record<CharacterAnimName, string> = {
   Idle: "Idle",
   walk: "Walk",
   run: "Run",
+  jump: "Jump",
 };
 const ANIM_ICONS: Record<CharacterAnimName, string> = {
   Idle: "🧍",
   walk: "🚶",
   run: "🏃",
+  jump: "🦘",
 };
 const ANIM_COLORS: Record<CharacterAnimName, string> = {
   Idle: "#6366f1",
   walk: "#22c55e",
   run: "#f97316",
+  jump: "#ec4899",
 };
 
-const ANIMATIONS: CharacterAnimName[] = ["Idle", "walk", "run"];
+const ANIMATIONS: CharacterAnimName[] = ["Idle", "walk", "run", "jump"];
 
-const MOVING_ANIMS: CharacterAnimName[] = ["walk", "run"];
+const MOVING_ANIMS: CharacterAnimName[] = ["walk", "run", "jump"];
 
 function uid() {
   return Math.random().toString(36).slice(2, 9);

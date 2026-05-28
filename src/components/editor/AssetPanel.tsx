@@ -41,6 +41,7 @@ const characterAssets: Asset[] = [
   { id: 'char-idle', name: 'Idle', type: 'character', icon: '🧍', color: '#6366f1' },
   { id: 'char-walk', name: 'walk', type: 'character', icon: '🚶', color: '#22c55e' },
   { id: 'char-run',  name: 'run',  type: 'character', icon: '🏃', color: '#f97316' },
+  { id: 'char-jump', name: 'jump', type: 'character', icon: '🦘', color: '#ec4899' },
 ];
 
 

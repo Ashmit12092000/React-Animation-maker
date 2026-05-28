@@ -41,18 +41,21 @@ const ANIM_LABELS: Record<CharacterAnimName, string> = {
   Idle: "Idle",
   walk: "Walk",
   run:  "Run",
+  jump: "Jump",
 };
 
 const ANIM_ICONS: Record<CharacterAnimName, string> = {
   Idle: "🧍",
   walk: "🚶",
   run:  "🏃",
+  jump: "🦘",
 };
 
 const ANIM_COLORS: Record<CharacterAnimName, string> = {
   Idle: "#6366f1",
   walk: "#22c55e",
   run:  "#f97316",
+  jump: "#ec4899",
 };
 
 export function CharacterPathPopup({ trackId, pathEndPoint, canvasEl, onClose, onSequenceBuilder }: Props) {
@@ -95,11 +98,8 @@ export function CharacterPathPopup({ trackId, pathEndPoint, canvasEl, onClose, o
 
   if (!pos) return null;
 
-  // Which travel animations to offer
-  const travelOptions: CharacterAnimName[] = (["walk", "run"] as CharacterAnimName[]).filter(
-    (a) => a !== currentAnim
-  );
-  if (travelOptions.length === 0) travelOptions.push("walk"); // fallback
+  // Show all animations — including the current one so user can keep it
+  const travelOptions: CharacterAnimName[] = ["Idle", "walk", "run", "jump"];
 
   const handleTravelChoice = (anim: CharacterAnimName) => {
     setChosenTravel(anim);
@@ -163,41 +163,63 @@ export function CharacterPathPopup({ trackId, pathEndPoint, canvasEl, onClose, o
               </p>
             </div>
 
-            {/* Simple travel options */}
-            <div style={{ display: "flex", gap: 8, marginBottom: 8 }}>
-              {travelOptions.map((anim) => (
-                <button
-                  key={anim}
-                  onClick={() => handleTravelChoice(anim)}
-                  style={{
-                    flex: 1,
-                    display:       "flex",
-                    flexDirection: "column",
-                    alignItems:    "center",
-                    gap:           4,
-                    padding:       "10px 8px",
-                    borderRadius:  10,
-                    border:        `1.5px solid ${ANIM_COLORS[anim]}44`,
-                    background:    `${ANIM_COLORS[anim]}15`,
-                    cursor:        "pointer",
-                    transition:    "all 0.15s",
-                    color:         ANIM_COLORS[anim],
-                  }}
-                  onMouseEnter={(e) => {
-                    (e.currentTarget as HTMLElement).style.background = `${ANIM_COLORS[anim]}30`;
-                    (e.currentTarget as HTMLElement).style.borderColor = `${ANIM_COLORS[anim]}99`;
-                    (e.currentTarget as HTMLElement).style.transform    = "scale(1.04)";
-                  }}
-                  onMouseLeave={(e) => {
-                    (e.currentTarget as HTMLElement).style.background = `${ANIM_COLORS[anim]}15`;
-                    (e.currentTarget as HTMLElement).style.borderColor = `${ANIM_COLORS[anim]}44`;
-                    (e.currentTarget as HTMLElement).style.transform    = "scale(1)";
-                  }}
-                >
-                  <span style={{ fontSize: 22 }}>{ANIM_ICONS[anim]}</span>
-                  <span style={{ fontSize: 12, fontWeight: 600 }}>{ANIM_LABELS[anim]}</span>
-                </button>
-              ))}
+            {/* Travel options — 2×2 grid, all 4 animations */}
+            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8, marginBottom: 8 }}>
+              {travelOptions.map((anim) => {
+                const isCurrent = anim === currentAnim;
+                return (
+                  <button
+                    key={anim}
+                    onClick={() => handleTravelChoice(anim)}
+                    style={{
+                      position:      "relative",
+                      display:       "flex",
+                      flexDirection: "column",
+                      alignItems:    "center",
+                      gap:           4,
+                      padding:       "10px 8px",
+                      borderRadius:  10,
+                      border:        isCurrent
+                        ? `1.5px solid ${ANIM_COLORS[anim]}99`
+                        : `1.5px solid ${ANIM_COLORS[anim]}44`,
+                      background:    isCurrent
+                        ? `${ANIM_COLORS[anim]}28`
+                        : `${ANIM_COLORS[anim]}15`,
+                      cursor:        "pointer",
+                      transition:    "all 0.15s",
+                      color:         ANIM_COLORS[anim],
+                    }}
+                    onMouseEnter={(e) => {
+                      (e.currentTarget as HTMLElement).style.background  = `${ANIM_COLORS[anim]}30`;
+                      (e.currentTarget as HTMLElement).style.borderColor = `${ANIM_COLORS[anim]}99`;
+                      (e.currentTarget as HTMLElement).style.transform   = "scale(1.04)";
+                    }}
+                    onMouseLeave={(e) => {
+                      (e.currentTarget as HTMLElement).style.background  = isCurrent ? `${ANIM_COLORS[anim]}28` : `${ANIM_COLORS[anim]}15`;
+                      (e.currentTarget as HTMLElement).style.borderColor = isCurrent ? `${ANIM_COLORS[anim]}99` : `${ANIM_COLORS[anim]}44`;
+                      (e.currentTarget as HTMLElement).style.transform   = "scale(1)";
+                    }}
+                  >
+                    {isCurrent && (
+                      <span style={{
+                        position:     "absolute",
+                        top:          4,
+                        right:        6,
+                        fontSize:     8,
+                        fontWeight:   700,
+                        letterSpacing: "0.05em",
+                        color:        ANIM_COLORS[anim],
+                        opacity:      0.85,
+                        textTransform: "uppercase",
+                      }}>
+                        Current
+                      </span>
+                    )}
+                    <span style={{ fontSize: 22 }}>{ANIM_ICONS[anim]}</span>
+                    <span style={{ fontSize: 12, fontWeight: 600 }}>{ANIM_LABELS[anim]}</span>
+                  </button>
+                );
+              })}
             </div>
 
             {/* ── Divider ── */}
@@ -323,39 +345,41 @@ export function CharacterPathPopup({ trackId, pathEndPoint, canvasEl, onClose, o
                 </div>
               </button>
 
-              {/* Return to Idle */}
-              <button
-                onClick={() => handleArrivalChoice("idle")}
-                style={{
-                  display:     "flex",
-                  alignItems:  "center",
-                  gap:         10,
-                  padding:     "10px 12px",
-                  borderRadius: 10,
-                  border:      `1.5px solid ${ANIM_COLORS["Idle"]}44`,
-                  background:  `${ANIM_COLORS["Idle"]}15`,
-                  cursor:      "pointer",
-                  color:       ANIM_COLORS["Idle"],
-                  textAlign:   "left",
-                  transition:  "all 0.15s",
-                }}
-                onMouseEnter={(e) => {
-                  (e.currentTarget as HTMLElement).style.background  = `${ANIM_COLORS["Idle"]}28`;
-                  (e.currentTarget as HTMLElement).style.borderColor = `${ANIM_COLORS["Idle"]}88`;
-                }}
-                onMouseLeave={(e) => {
-                  (e.currentTarget as HTMLElement).style.background  = `${ANIM_COLORS["Idle"]}15`;
-                  (e.currentTarget as HTMLElement).style.borderColor = `${ANIM_COLORS["Idle"]}44`;
-                }}
-              >
-                <span style={{ fontSize: 20 }}>{ANIM_ICONS["Idle"]}</span>
-                <div>
-                  <div style={{ fontSize: 12, fontWeight: 600 }}>Return to Idle</div>
-                  <div style={{ fontSize: 10, color: "#94a3b8", marginTop: 1 }}>
-                    Stand still after arrival
+              {/* Return to Idle — only shown if travel isn't already Idle */}
+              {chosenTravel !== "Idle" && (
+                <button
+                  onClick={() => handleArrivalChoice("idle")}
+                  style={{
+                    display:     "flex",
+                    alignItems:  "center",
+                    gap:         10,
+                    padding:     "10px 12px",
+                    borderRadius: 10,
+                    border:      `1.5px solid ${ANIM_COLORS["Idle"]}44`,
+                    background:  `${ANIM_COLORS["Idle"]}15`,
+                    cursor:      "pointer",
+                    color:       ANIM_COLORS["Idle"],
+                    textAlign:   "left",
+                    transition:  "all 0.15s",
+                  }}
+                  onMouseEnter={(e) => {
+                    (e.currentTarget as HTMLElement).style.background  = `${ANIM_COLORS["Idle"]}28`;
+                    (e.currentTarget as HTMLElement).style.borderColor = `${ANIM_COLORS["Idle"]}88`;
+                  }}
+                  onMouseLeave={(e) => {
+                    (e.currentTarget as HTMLElement).style.background  = `${ANIM_COLORS["Idle"]}15`;
+                    (e.currentTarget as HTMLElement).style.borderColor = `${ANIM_COLORS["Idle"]}44`;
+                  }}
+                >
+                  <span style={{ fontSize: 20 }}>{ANIM_ICONS["Idle"]}</span>
+                  <div>
+                    <div style={{ fontSize: 12, fontWeight: 600 }}>Return to Idle</div>
+                    <div style={{ fontSize: 10, color: "#94a3b8", marginTop: 1 }}>
+                      Stand still after arrival
+                    </div>
                   </div>
-                </div>
-              </button>
+                </button>
+              )}
             </div>
 
             <button

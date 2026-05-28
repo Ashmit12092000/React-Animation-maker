@@ -31,7 +31,7 @@ export interface PathAnimation {
 
 // ── Sequence types ──────────────────────────────────────────────────────────
 
-export type CharacterAnimName = "Idle" | "walk" | "run";
+export type CharacterAnimName = "Idle" | "walk" | "run" | "jump";
 
 /**
  * One step in a multi-step character sequence.
