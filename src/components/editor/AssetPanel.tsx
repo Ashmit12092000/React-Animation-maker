@@ -37,12 +37,71 @@ import {
 type PanelTab = "elements" | "text" | "media" | "characters" | "draw";
 
 // icon field repurposed as emoji preview; name must match DragonBones animation name exactly
-const characterAssets: Asset[] = [
-  { id: 'char-idle', name: 'Idle', type: 'character', icon: '🧍', color: '#6366f1' },
-  { id: 'char-walk', name: 'walk', type: 'character', icon: '🚶', color: '#22c55e' },
-  { id: 'char-run',  name: 'run',  type: 'character', icon: '🏃', color: '#f97316' },
-  { id: 'char-jump', name: 'jump', type: 'character', icon: '🦘', color: '#ec4899' },
+type CharacterGroup = { label: string; color: string; assets: Asset[] };
+
+const characterGroups: CharacterGroup[] = [
+  {
+    label: "Locomotion",
+    color: "#6366f1",
+    assets: [
+      { id: 'char-idle',  name: 'Idle',  type: 'character', icon: '🧍', color: '#6366f1' },
+      { id: 'char-walk',  name: 'walk',  type: 'character', icon: '🚶', color: '#22c55e' },
+      { id: 'char-run',   name: 'run',   type: 'character', icon: '🏃', color: '#f97316' },
+      { id: 'char-jump',  name: 'jump',  type: 'character', icon: '🦘', color: '#ec4899' },
+    ],
+  },
+  {
+    label: "Morning / Rest",
+    color: "#f59e0b",
+    assets: [
+      { id: 'char-yawn',           name: 'yawn',           type: 'character', icon: '🥱', color: '#f59e0b' },
+      { id: 'char-stretch',        name: 'stretch',        type: 'character', icon: '🙆', color: '#f59e0b' },
+      { id: 'char-rub_eyes',       name: 'rub_eyes',       type: 'character', icon: '😴', color: '#f59e0b' },
+      { id: 'char-swing_legs_out', name: 'swing_legs_out', type: 'character', icon: '🛏️', color: '#f59e0b' },
+      { id: 'char-put_on_shirt',   name: 'put_on_shirt',   type: 'character', icon: '👕', color: '#f59e0b' },
+    ],
+  },
+  {
+    label: "Activity",
+    color: "#10b981",
+    assets: [
+      { id: 'char-flip_food',   name: 'flip_food',   type: 'character', icon: '🍳', color: '#10b981' },
+      { id: 'char-eat',         name: 'eat',         type: 'character', icon: '🍽️', color: '#10b981' },
+      { id: 'char-drink',       name: 'drink',       type: 'character', icon: '☕', color: '#10b981' },
+      { id: 'char-wipe_table',  name: 'wipe_table',  type: 'character', icon: '🧹', color: '#10b981' },
+      { id: 'char-read_book',   name: 'read_book',   type: 'character', icon: '📖', color: '#10b981' },
+      { id: 'char-look_up',     name: 'look_up',     type: 'character', icon: '👀', color: '#10b981' },
+      { id: 'char-desk_stretch',name: 'desk_stretch',type: 'character', icon: '💺', color: '#10b981' },
+      { id: 'char-pick_up_box', name: 'pick_up_box', type: 'character', icon: '📦', color: '#10b981' },
+    ],
+  },
+  {
+    label: "Posture",
+    color: "#8b5cf6",
+    assets: [
+      { id: 'char-sit_down',    name: 'sit_down',    type: 'character', icon: '🪑', color: '#8b5cf6' },
+      { id: 'char-cross_legs',  name: 'cross_legs',  type: 'character', icon: '🧘', color: '#8b5cf6' },
+      { id: 'char-sit_idle',    name: 'sit_idle',    type: 'character', icon: '😌', color: '#8b5cf6' },
+      { id: 'char-lay_down',    name: 'lay_down',    type: 'character', icon: '🛌', color: '#8b5cf6' },
+      { id: 'char-pull_blanket',name: 'pull_blanket',type: 'character', icon: '🛏️', color: '#8b5cf6' },
+      { id: 'char-fall_asleep', name: 'fall_asleep', type: 'character', icon: '💤', color: '#8b5cf6' },
+    ],
+  },
+  {
+    label: "Social",
+    color: "#e879f9",
+    assets: [
+      { id: 'char-handshake',  name: 'handshake',  type: 'character', icon: '🤝', color: '#e879f9' },
+      { id: 'char-wave',       name: 'wave',       type: 'character', icon: '👋', color: '#e879f9' },
+      { id: 'char-point',      name: 'point',      type: 'character', icon: '👉', color: '#e879f9' },
+      { id: 'char-nod',        name: 'nod',        type: 'character', icon: '🙂', color: '#e879f9' },
+      { id: 'char-shake_head', name: 'shake_head', type: 'character', icon: '🙅', color: '#e879f9' },
+    ],
+  },
 ];
+
+// Flat list for drag operations (used in drag handler)
+const characterAssets: Asset[] = characterGroups.flatMap(g => g.assets);
 
 
 export function AssetPanel() {
@@ -618,40 +677,69 @@ export function AssetPanel() {
           <div className="flex flex-col h-full">
             <div className="p-4 border-b border-panel-border">
               <h2 className="font-semibold text-foreground">Characters</h2>
-              <p className="text-xs text-muted-foreground mt-1">Drag and drop characters onto the canvas</p>
-            </div>
-            <div className="flex-1 overflow-y-auto p-4 custom-scrollbar">
-              <p className="text-xs text-muted-foreground mb-3">
-                Drag onto the canvas to animate
+              <p className="text-xs text-muted-foreground mt-1">
+                26 animations — drag onto canvas to add
               </p>
-              <div className="flex flex-col gap-3">
-                {characterAssets.map((asset) => (
-                  <div
-                    key={asset.id}
-                    draggable
-                    onDragStart={(e) => handleDragStart(e, asset)}
-                    className="group flex items-center gap-3 p-3 rounded-xl bg-secondary border border-panel-border hover:border-primary/50 cursor-grab active:cursor-grabbing transition-all select-none"
-                  >
-                    {/* Emoji preview circle */}
+            </div>
+            <div className="flex-1 overflow-y-auto p-4 custom-scrollbar space-y-5">
+              {characterGroups.map((group) => (
+                <div key={group.label}>
+                  {/* Group header */}
+                  <div className="flex items-center gap-2 mb-2">
                     <div
-                      className="w-12 h-12 rounded-lg flex items-center justify-center text-2xl shrink-0"
-                      style={{ backgroundColor: (asset.color ?? '#6366f1') + '33' }}
+                      className="w-2 h-2 rounded-full shrink-0"
+                      style={{ backgroundColor: group.color }}
+                    />
+                    <span
+                      className="text-[10px] font-semibold uppercase tracking-wider"
+                      style={{ color: group.color }}
                     >
-                      {asset.icon}
-                    </div>
-                    <div className="flex-1 min-w-0">
-                      <p className="text-sm font-medium text-foreground capitalize">{asset.name}</p>
-                      <p className="text-[10px] text-muted-foreground">Drag to canvas</p>
-                    </div>
-                    {/* Drag handle indicator */}
-                    <div className="opacity-0 group-hover:opacity-100 transition-opacity">
-                      <svg className="w-4 h-4 text-muted-foreground" fill="currentColor" viewBox="0 0 24 24">
-                        <path d="M8 6a2 2 0 1 0 0-4 2 2 0 0 0 0 4zm0 8a2 2 0 1 0 0-4 2 2 0 0 0 0 4zm0 8a2 2 0 1 0 0-4 2 2 0 0 0 0 4zm8-16a2 2 0 1 0 0-4 2 2 0 0 0 0 4zm0 8a2 2 0 1 0 0-4 2 2 0 0 0 0 4zm0 8a2 2 0 1 0 0-4 2 2 0 0 0 0 4z" />
-                      </svg>
-                    </div>
+                      {group.label}
+                    </span>
+                    <div className="flex-1 h-px" style={{ backgroundColor: group.color + '22' }} />
                   </div>
-                ))}
-              </div>
+
+                  {/* Grid of animation cards */}
+                  <div className="grid grid-cols-2 gap-2">
+                    {group.assets.map((asset) => (
+                      <div
+                        key={asset.id}
+                        draggable
+                        onDragStart={(e) => handleDragStart(e, asset)}
+                        className="group flex items-center gap-2 p-2.5 rounded-lg border cursor-grab active:cursor-grabbing transition-all select-none"
+                        style={{
+                          backgroundColor: (asset.color ?? '#6366f1') + '0d',
+                          borderColor: (asset.color ?? '#6366f1') + '33',
+                        }}
+                        onMouseEnter={(e) => {
+                          (e.currentTarget as HTMLElement).style.borderColor = (asset.color ?? '#6366f1') + '88';
+                          (e.currentTarget as HTMLElement).style.backgroundColor = (asset.color ?? '#6366f1') + '1a';
+                        }}
+                        onMouseLeave={(e) => {
+                          (e.currentTarget as HTMLElement).style.borderColor = (asset.color ?? '#6366f1') + '33';
+                          (e.currentTarget as HTMLElement).style.backgroundColor = (asset.color ?? '#6366f1') + '0d';
+                        }}
+                      >
+                        <div
+                          className="w-9 h-9 rounded-md flex items-center justify-center text-xl shrink-0"
+                          style={{ backgroundColor: (asset.color ?? '#6366f1') + '22' }}
+                        >
+                          {asset.icon}
+                        </div>
+                        <div className="flex-1 min-w-0">
+                          <p
+                            className="text-[11px] font-medium leading-tight truncate capitalize"
+                            style={{ color: asset.color ?? '#e2e8f0' }}
+                          >
+                            {asset.name.replace(/_/g, ' ')}
+                          </p>
+                          <p className="text-[9px] text-muted-foreground mt-0.5">drag to canvas</p>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              ))}
             </div>
           </div>
         )}

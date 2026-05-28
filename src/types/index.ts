@@ -31,7 +31,18 @@ export interface PathAnimation {
 
 // ── Sequence types ──────────────────────────────────────────────────────────
 
-export type CharacterAnimName = "Idle" | "walk" | "run" | "jump";
+export type CharacterAnimName =
+  // Core locomotion
+  | "Idle" | "walk" | "run" | "jump"
+  // Morning / rest
+  | "yawn" | "stretch" | "rub_eyes" | "swing_legs_out" | "put_on_shirt"
+  // Activity
+  | "flip_food" | "eat" | "drink" | "wipe_table" | "read_book"
+  | "look_up" | "desk_stretch" | "pick_up_box"
+  // Posture
+  | "sit_down" | "cross_legs" | "sit_idle" | "lay_down" | "pull_blanket" | "fall_asleep"
+  // Social
+  | "handshake" | "wave" | "point" | "nod" | "shake_head";
 
 /**
  * One step in a multi-step character sequence.
