@@ -612,6 +612,30 @@ export function CanvasEditor() {
       })();
     } else if (asset.type === ("prop" as any)) {
       // ── Prop armature (chair, tshirt, car, food, long_broom, cup) ───────────
+
+      // ── Special case: chair uses a plain image (no DragonBones armature) ───
+      if (asset.name === "chair") {
+        const img = new Image();
+        img.crossOrigin = "anonymous";
+        img.onload = () => {
+          // Target height matches the DragonBones chair proxy height (160px on 540px canvas)
+          const TARGET_H = 160;
+          const scale = TARGET_H / img.naturalHeight;
+          const fabricImg = new FabricImage(img, {
+            left: baseLeft,
+            top:  baseTop,
+            scaleX: scale,
+            scaleY: scale,
+          });
+          // Mark as prop so PropActionPopup, applyKeyframesAtTime, etc. all work
+          (fabricImg as any).customType = "prop";
+          addObjectToCanvas(fabricImg, id, asset);
+        };
+        img.onerror = () => console.error("[Chair] Failed to load chair_new.png");
+        img.src = "/chair_new.png";
+        return; // skip DragonBones path below
+      }
+
       // Build a placeholder proxy rect first; swap in the PIXI display async.
       const PLACEHOLDER_W = 120;
       const PLACEHOLDER_H = 100;

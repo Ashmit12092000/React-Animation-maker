@@ -637,12 +637,45 @@ export const createTrackSlice: StateCreator<EditorState, [], [], TrackSlice> = (
   },
 
   commitCharacterSequenceAction: (trackId, steps) => {
+    const TRAVEL_ANIMS = new Set(["walk", "run"]);
+    const incomingHasTravel = steps.some((s) => TRAVEL_ANIMS.has(s.animation));
+
+    // Only clear pathAnimation when the NEW sequence is purely stationary.
+    // Walk & Sit comes in WITH travel steps and brings its own fresh path
+    // (assigned just before this call), so we must not null it out.
+    // For stationary follow-ups (Sit Up, Get Up, etc.) we DO clear the old
+    // path so applyKeyframesAtTime stops teleporting the character back to
+    // the walk start point.
+    if (!incomingHasTravel) {
+      const track = get().tracks.find((t) => t.id === trackId);
+      if (track?.pathAnimation && track.pathAnimation.points.length > 1) {
+        const obj = track.fabricObject as any;
+        if (obj) {
+          // Pin a keyframe at the current playhead so interpolation keeps
+          // the character at the chair position after the path is cleared.
+          get().addKeyframeAtCurrentTime(trackId);
+          get().updateTrack(trackId, {
+            initialState: {
+              left:    obj.left    ?? 0,
+              top:     obj.top     ?? 0,
+              scaleX:  obj.scaleX  ?? 1,
+              scaleY:  obj.scaleY  ?? 1,
+              angle:   obj.angle   ?? 0,
+              opacity: obj.opacity ?? 1,
+            },
+          });
+        }
+      }
+    }
+
     set((state) => ({
       tracks: state.tracks.map((t) =>
         t.id === trackId
           ? {
               ...t,
               pendingPathAction: null,
+              // Only wipe the path for stationary sequences.
+              ...(incomingHasTravel ? {} : { pathAnimation: null }),
               sequenceAction: { steps },
             }
           : t

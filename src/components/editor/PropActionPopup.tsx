@@ -564,7 +564,7 @@ export interface PropActionPopupProps {
 // Seat offset relative to the prop proxy's top-left corner (in proxy pixels).
 // These are "where the character's feet should land" relative to the prop.
 const PROP_SEAT_OFFSET: Record<string, { x: number; y: number }> = {
-  chair: { x: 0.5, y: 0.85 }, // 50% across, 85% down the chair proxy
+  chair: { x: 0.5, y: 0.52 }, // 50% across, 52% down — seat pad of office chair
   cup:   { x: 0.5, y: 1.0  }, // stand in front of cup
 };
 
@@ -578,7 +578,7 @@ export function PropActionPopup({
   propTrackId,
   onClose,
 }: PropActionPopupProps) {
-  const { tracks, commitCharacterSequenceAction, updateTrack, assignPathToTrack } = useEditorStore();
+  const { tracks, commitCharacterSequenceAction, updateTrack, assignPathToTrack, removePathFromTrack } = useEditorStore();
 
   const config = PROP_CONFIG[propName.toLowerCase()];
   const popupRef = useRef<HTMLDivElement>(null);
@@ -757,7 +757,22 @@ export function PropActionPopup({
         });
 
       } else {
-        // ── Stationary sequence (cup actions, get_up, sit_down in place) ──
+        // ── Stationary sequence (cup actions, get_up, sit_up in place) ──
+        // If the track previously had a walk path (e.g. "Walk & Sit"), the
+        // character's fabricObject is already at the chair.  Clear the path
+        // first so applyKeyframesAtTime stops overriding the position, then
+        // snap a keyframe at the current canvas location so the character
+        // stays exactly where they are for the new sequence.
+        if (track.pathAnimation && track.pathAnimation.points.length > 1) {
+          const charProxy = track.fabricObject as any;
+          if (charProxy) {
+            // Freeze the object at its current rendered position so the
+            // next sequence starts from the chair, not from the walk origin.
+            charProxy.set({ left: charProxy.left, top: charProxy.top });
+            charProxy.setCoords?.();
+          }
+          removePathFromTrack(trackId);
+        }
         const steps = stepsToSequence(selectedAction.steps);
         commitCharacterSequenceAction(trackId, steps);
         updateTrack(trackId, { endTime: track.startTime + totalDur });

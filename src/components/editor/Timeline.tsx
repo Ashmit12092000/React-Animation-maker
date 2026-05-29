@@ -17,12 +17,14 @@ import {
   RotateCcw,
   Mic,
   Volume2,
-  VolumeX
+  VolumeX,
+  Zap,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { KeyframeEditor } from "./KeyframeEditor";
 import { toast } from "sonner";
 import { VoiceRecorder } from "./VoiceRecorder";
+import { PropActionPopup } from "./PropActionPopup";
 
 // Color system
 const TYPE_COLORS: Record<"audio" | "video", { from: string; to: string; glow: string; text: string; dot: string }> = {
@@ -118,6 +120,35 @@ export function Timeline() {
   } | null>(null);
 
   const [timelineWidth, setTimelineWidth] = useState(2000);
+  const [propPopup, setPropPopup] = useState<{
+    propName: string;
+    position: { x: number; y: number };
+    canvasEl: HTMLCanvasElement | null;
+    propTrackId: string;
+  } | null>(null);
+
+  // Helper: open PropActionPopup for a prop track
+  const openPropActions = useCallback((track: (typeof tracks)[0], e?: React.MouseEvent) => {
+    e?.stopPropagation();
+    const fab = track.fabricObject as any;
+    if (!fab || fab.customType !== "prop") return;
+    const propName: string = fab._assetName ?? fab.propName ?? "";
+    if (!propName) return;
+    const canvasEl = canvas?.getElement() ?? null;
+    const rect = canvasEl?.getBoundingClientRect();
+    const scaleX = rect && canvasEl ? rect.width  / (canvasEl.width  || rect.width)  : 1;
+    const scaleY = rect && canvasEl ? rect.height / (canvasEl.height || rect.height) : 1;
+    const cx = (fab.left ?? 0) + (fab.getScaledWidth?.() ?? 0) / 2;
+    const cy = fab.top ?? 0;
+    const screenX = rect ? rect.left + cx * scaleX : cx;
+    const screenY = rect ? rect.top  + cy * scaleY : cy;
+    setPropPopup({
+      propName,
+      position: { x: screenX, y: screenY },
+      canvasEl,
+      propTrackId: track.id,
+    });
+  }, [canvas, tracks]);
 
   const maxTrackEnd = Math.max(0, ...tracks.map((t) => (isFinite(t.endTime) ? t.endTime : 0)));
 
@@ -296,7 +327,8 @@ export function Timeline() {
     return () => { if (animationRef.current) cancelAnimationFrame(animationRef.current); };
   }, [isPlaying, maxDuration, setCurrentTime, applyKeyframesAtTime, syncAudioPlayback, setIsPlaying]);
 
-  const handleTrackClick = (track: (typeof tracks)[0]) => {
+  const handleTrackClick = (e: React.MouseEvent, track: (typeof tracks)[0]) => {
+    e.stopPropagation(); // prevent bubbling to handleTimelineClick (which would move the playhead)
     if (track.type === "audio") setSelectedObject(track.id, null, "audio");
     else if (track.type === "video") setSelectedObject(track.id, null, "video");
     else if (track.fabricObject) {
@@ -610,8 +642,7 @@ export function Timeline() {
             return (
               <div
                 key={track.id}
-                onClick={() => handleTrackClick(track)}
-                className="h-12 flex-shrink-0 flex items-center gap-1.5 px-3 text-left transition-all group relative overflow-hidden cursor-pointer"
+                onClick={(e) => handleTrackClick(e, track)}
                 style={{
                   background: isSelected ? "rgba(255,255,255,0.06)" : undefined,
                   boxShadow: isSelected ? `inset 2px 0 0 ${c.dot}` : undefined,
@@ -647,6 +678,31 @@ export function Timeline() {
                         className="w-16 h-1 accent-purple-400 bg-gray-700 rounded-full appearance-none"
                       />
                     </div>
+                  )}
+                  {/* Prop action shortcut — visible when this prop track is selected */}
+                  {isSelected && (track.fabricObject as any)?.customType === "prop" && (
+                    <button
+                      onClick={(e) => openPropActions(track, e)}
+                      title="Open prop actions"
+                      style={{
+                        marginTop: 2,
+                        display: "flex",
+                        alignItems: "center",
+                        gap: 3,
+                        fontSize: 9,
+                        fontWeight: 700,
+                        color: c.text,
+                        background: `${c.dot}22`,
+                        border: `1px solid ${c.dot}44`,
+                        borderRadius: 4,
+                        padding: "1px 5px",
+                        cursor: "pointer",
+                        letterSpacing: "0.03em",
+                      }}
+                    >
+                      <Zap style={{ width: 8, height: 8 }} />
+                      Actions
+                    </button>
                   )}
                 </div>
 
@@ -724,7 +780,7 @@ export function Timeline() {
                       background: trackIdx % 2 === 0 ? "rgba(255,255,255,0.01)" : "transparent",
                       borderBottom: "1px solid rgba(255,255,255,0.035)",
                     }}
-                    onClick={() => handleTrackClick(track)}
+                    onClick={(e) => handleTrackClick(e, track)}
                   >
                     <div
                       className="absolute h-8 top-2 rounded-md cursor-move overflow-hidden transition-shadow"
@@ -738,6 +794,11 @@ export function Timeline() {
                         minWidth: 4,
                       }}
                       onMouseDown={(e) => handleTrackDragStart(e, track.id)}
+                      onDoubleClick={(e) => {
+                        if ((track.fabricObject as any)?.customType === "prop") {
+                          openPropActions(track, e);
+                        }
+                      }}
                     >
                       {track.type === "audio" && <WaveformBars trackId={track.id} />}
 
@@ -923,6 +984,17 @@ export function Timeline() {
       )}
 
       <KeyframeEditor />
+
+      {/* Prop action popup — opened from timeline track double-click or Actions button */}
+      {propPopup && (
+        <PropActionPopup
+          propName={propPopup.propName}
+          propPosition={propPopup.position}
+          canvasEl={propPopup.canvasEl}
+          propTrackId={propPopup.propTrackId}
+          onClose={() => setPropPopup(null)}
+        />
+      )}
     </div>
   );
 }
