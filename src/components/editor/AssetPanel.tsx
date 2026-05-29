@@ -45,12 +45,12 @@ const propGroups: CharacterGroup[] = [
     label: "Props",
     color: "#f97316",
     assets: [
-      { id: "prop-chair",      name: "chair",      type: "prop" as any, icon: "🪑", color: "#f97316" },
+      { id: "prop-chair",      name: "chair",      type: "prop" as any, icon: "🪑", color: "#8b5cf6" },
       { id: "prop-tshirt",     name: "tshirt",     type: "prop" as any, icon: "👕", color: "#f97316" },
       { id: "prop-car",        name: "car",         type: "prop" as any, icon: "🚗", color: "#f97316" },
       { id: "prop-food",       name: "food",        type: "prop" as any, icon: "🍽️", color: "#f97316" },
       { id: "prop-long_broom", name: "long_broom",  type: "prop" as any, icon: "🧹", color: "#f97316" },
-      { id: "prop-cup",        name: "cup",         type: "prop" as any, icon: "☕", color: "#f97316" },
+      { id: "prop-cup",        name: "cup",         type: "prop" as any, icon: "☕", color: "#f59e0b" },
     ],
   },
 ];
@@ -763,7 +763,13 @@ export function AssetPanel() {
                           <p className="text-[11px] font-medium leading-tight truncate capitalize" style={{ color: asset.color ?? "#e2e8f0" }}>
                             {asset.name.replace(/_/g, " ")}
                           </p>
-                          <p className="text-[9px] text-muted-foreground mt-0.5">drag to canvas</p>
+                          {(asset.name === "cup" || asset.name === "chair") ? (
+                            <p className="text-[9px] mt-0.5" style={{ color: (asset.color ?? "#f97316") + "bb" }}>
+                              ✦ dbl-click for actions
+                            </p>
+                          ) : (
+                            <p className="text-[9px] text-muted-foreground mt-0.5">drag to canvas</p>
+                          )}
                         </div>
                       </div>
                     ))}

@@ -13,6 +13,7 @@ import * as PIXI from "pixi.js";
 import { useEditorStore, type Asset } from "@/stores/editorStore";
 import { ContextMenu } from "./ContextMenu";
 import { PathDrawOverlay } from "./PathDrawOverlay";
+import { PropActionPopup } from "./PropActionPopup";
 import { loadCharacter, loadProp, hookPixiTicker } from "@/lib/dragonbonesRenderer";
 
 (window as any).PIXI = PIXI;
@@ -23,6 +24,13 @@ export function CanvasEditor() {
   const fabricRef = useRef<FabricCanvas | null>(null);
   const pixiAppRef = useRef<PIXI.Application | null>(null);
   const armatureDisplaysRef = useRef<import("dragonbones-pixijs").PixiArmatureDisplay[]>([]);
+
+  // ── Prop action popup state ──────────────────────────────────────────────
+  const [propPopup, setPropPopup] = useState<{
+    propName: string;
+    position: { x: number; y: number };
+    canvasEl: HTMLCanvasElement | null;
+  } | null>(null);
 
 
   const {
@@ -185,6 +193,25 @@ export function CanvasEditor() {
       if (bg) canvas.sendObjectToBack(bg);
     });
 
+    // ── Double-click on a prop → open PropActionPopup ───────────────────────
+    canvas.on("mouse:dblclick", (opt) => {
+      const target = opt.target;
+      if (!target || (target as any).customType !== "prop") return;
+
+      const propName: string = (target as any)._assetName ?? (target as any).propName ?? "";
+      if (!propName) return;
+
+      // Canvas centre of the prop proxy in canvas coords
+      const cx = (target.left ?? 0) + (target.getScaledWidth() ?? 0) / 2;
+      const cy = (target.top ?? 0);
+
+      setPropPopup({
+        propName,
+        position: { x: cx, y: cy },
+        canvasEl: canvasRef.current,
+      });
+    });
+
     canvas.on("selection:updated", (e) => {
       handleSelectionLocks();
       const obj = e.selected?.[0];
@@ -224,14 +251,14 @@ export function CanvasEditor() {
         const display = (obj as any).armatureDisplay;
         if (display) {
           const dbScale    = (obj as any).dbScale ?? 1;
-          const userScaleX = obj.scaleX || 1;
-          const userScaleY = obj.scaleY || 1;
-          display.x = obj.left || 0;
-          display.y = obj.top  || 0;
-          display.scale.set(dbScale * Math.max(userScaleX, userScaleY));
+          const userScale  = Math.max(obj.scaleX || 1, obj.scaleY || 1);
+          const baseOffX   = (obj as any).propOffsetX ?? 0;
+          const baseOffY   = (obj as any).propOffsetY ?? 0;
+          display.x = (obj.left || 0) + baseOffX * userScale;
+          display.y = (obj.top  || 0) + baseOffY * userScale;
+          display.scale.set(dbScale * userScale);
         }
       }
-
 
       const cvs = obj.canvas!;
       const scaledWidth = obj.getScaledWidth();
@@ -272,12 +299,13 @@ export function CanvasEditor() {
       if (target && (target as any).customType === "prop") {
         const display = (target as any).armatureDisplay;
         if (display) {
-          const dbScale    = (target as any).dbScale ?? 1;
-          const userScaleX = target.scaleX || 1;
-          const userScaleY = target.scaleY || 1;
-          display.x = target.left || 0;
-          display.y = target.top  || 0;
-          display.scale.set(dbScale * Math.max(userScaleX, userScaleY));
+          const dbScale   = (target as any).dbScale ?? 1;
+          const userScale = Math.max(target.scaleX || 1, target.scaleY || 1);
+          const baseOffX  = (target as any).propOffsetX ?? 0;
+          const baseOffY  = (target as any).propOffsetY ?? 0;
+          display.x = (target.left || 0) + baseOffX * userScale;
+          display.y = (target.top  || 0) + baseOffY * userScale;
+          display.scale.set(dbScale * userScale);
         }
       }
 
@@ -600,7 +628,7 @@ export function CanvasEditor() {
           const pixiApp = pixiAppRef.current;
           if (!pixiApp) { console.error("[DragonBones] PIXI app not ready for prop"); return; }
 
-          const { display, dbScale, proxyW, proxyH } = await loadProp(asset.name as any);
+          const { display, dbScale, proxyW, proxyH, offsetX, offsetY } = await loadProp(asset.name as any);
 
           // Resize the proxy to match the actual prop dimensions
           proxy.set({ width: proxyW, height: proxyH });
@@ -608,10 +636,10 @@ export function CanvasEditor() {
           fabricRef.current?.renderAll();
 
           display.scale.set(dbScale);
-          // DragonBones AABB origin is top-left; PIXI pivot is at (0,0) of the armature root.
-          // Position display so top-left of AABB matches proxy top-left.
-          display.x = (proxy.left ?? baseLeft);
-          display.y = (proxy.top  ?? baseTop);
+          // Armature root is NOT at the AABB top-left.
+          // display.x/y = proxy.left/top MINUS the scaled root offset.
+          display.x = (proxy.left ?? baseLeft) + offsetX;
+          display.y = (proxy.top  ?? baseTop)  + offsetY;
 
           pixiApp.stage.addChild(display);
 
@@ -619,6 +647,8 @@ export function CanvasEditor() {
           (proxy as any).dbScale          = dbScale;
           (proxy as any).propW            = proxyW;
           (proxy as any).propH            = proxyH;
+          (proxy as any).propOffsetX      = offsetX;
+          (proxy as any).propOffsetY      = offsetY;
           armatureDisplaysRef.current.push(display);
 
           const startAnim = display.animation.lastAnimationName ?? "";
@@ -976,6 +1006,16 @@ export function CanvasEditor() {
           x={contextMenu.x}
           y={contextMenu.y}
           onClose={() => setContextMenu({ visible: false, x: 0, y: 0 })}
+        />
+      )}
+
+      {/* Prop action popup — appears on double-click of cup/chair */}
+      {propPopup && (
+        <PropActionPopup
+          propName={propPopup.propName}
+          propPosition={propPopup.position}
+          canvasEl={propPopup.canvasEl}
+          onClose={() => setPropPopup(null)}
         />
       )}
     </div>

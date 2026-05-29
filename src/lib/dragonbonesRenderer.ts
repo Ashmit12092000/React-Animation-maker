@@ -123,6 +123,25 @@ const PROP_AABB: Record<PropName, { w: number; h: number }> = {
   cup:        { w: 90,  h: 120 },
 };
 
+/**
+ * Offset of the armature root (PIXI origin) from the top-left corner of the
+ * AABB bounding box, IN ORIGINAL (un-scaled) DragonBones units.
+ * i.e.  display.x = proxy.left - offsetX * scale
+ *       display.y = proxy.top  - offsetY * scale
+ *
+ * These are measured as: how far right/down is the top-left corner of the AABB
+ * relative to the armature root?  A positive offsetX means the root is to the
+ * LEFT of the AABB top-left, so we subtract it.
+ */
+const PROP_ROOT_OFFSET: Record<PropName, { x: number; y: number }> = {
+  chair:      { x: 120, y: 340 },   // root at bottom-centre
+  tshirt:     { x: 100, y: 300 },
+  car:        { x: 300, y: 250 },
+  food:       { x: 120, y: 140 },
+  long_broom: { x:  40, y: 380 },
+  cup:        { x:  45, y: 120 },
+};
+
 /** Target pixel heights for props on a 540px-tall canvas (tuned visually) */
 const PROP_TARGET_H: Record<PropName, number> = {
   chair:      160,
@@ -146,6 +165,10 @@ export async function loadProp(
   dbScale: number;
   proxyW: number;
   proxyH: number;
+  /** Pixels to subtract from proxy.left to get display.x (already scaled) */
+  offsetX: number;
+  /** Pixels to subtract from proxy.top  to get display.y (already scaled) */
+  offsetY: number;
 }> {
   await ensureFactoryLoaded();
 
@@ -154,10 +177,15 @@ export async function loadProp(
   if (!display) throw new Error(`[DragonBones] Could not build prop armature: ${propName}`);
 
   const aabb = PROP_AABB[propName];
+  const root = PROP_ROOT_OFFSET[propName];
   const targetH = PROP_TARGET_H[propName];
   const dbScale = targetH / aabb.h;
   const proxyW  = Math.round(aabb.w * dbScale);
   const proxyH  = targetH;
+
+  // How far (in scaled pixels) is the armature root from the proxy top-left?
+  const offsetX = Math.round(root.x * dbScale);
+  const offsetY = Math.round(root.y * dbScale);
 
   display.scale.set(dbScale);
 
@@ -171,5 +199,5 @@ export async function loadProp(
     console.log(`[DragonBones] Prop '${propName}' playing: ${target}`);
   }
 
-  return { display, animations, dbScale, proxyW, proxyH };
+  return { display, animations, dbScale, proxyW, proxyH, offsetX, offsetY };
 }
