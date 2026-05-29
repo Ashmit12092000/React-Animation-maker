@@ -1,4 +1,4 @@
-import { useState, useRef, useEffect } from "react";
+import { useState, useRef, useEffect, useCallback } from "react";
 import {
   useEditorStore,
   sampleAssets, // Re-exported from updated editorStore
@@ -38,6 +38,22 @@ type PanelTab = "elements" | "text" | "media" | "characters" | "draw";
 
 // icon field repurposed as emoji preview; name must match DragonBones animation name exactly
 type CharacterGroup = { label: string; color: string; assets: Asset[] };
+
+// ── Props ─────────────────────────────────────────────────────────────────────
+const propGroups: CharacterGroup[] = [
+  {
+    label: "Props",
+    color: "#f97316",
+    assets: [
+      { id: "prop-chair",      name: "chair",      type: "prop" as any, icon: "🪑", color: "#f97316" },
+      { id: "prop-tshirt",     name: "tshirt",     type: "prop" as any, icon: "👕", color: "#f97316" },
+      { id: "prop-car",        name: "car",         type: "prop" as any, icon: "🚗", color: "#f97316" },
+      { id: "prop-food",       name: "food",        type: "prop" as any, icon: "🍽️", color: "#f97316" },
+      { id: "prop-long_broom", name: "long_broom",  type: "prop" as any, icon: "🧹", color: "#f97316" },
+      { id: "prop-cup",        name: "cup",         type: "prop" as any, icon: "☕", color: "#f97316" },
+    ],
+  },
+];
 
 const characterGroups: CharacterGroup[] = [
   {
@@ -106,6 +122,35 @@ const characterAssets: Asset[] = characterGroups.flatMap(g => g.assets);
 
 export function AssetPanel() {
   const [isOpen, setIsOpen] = useState(true); 
+
+  // ── Vertical resize ──────────────────────────────────────────────────────────
+  // null = full height (h-full); number = explicit px height
+  const [panelHeight, setPanelHeight] = useState<number | null>(null);
+  const isDraggingV = useRef(false);
+  const dragStartY  = useRef(0);
+  const dragStartH  = useRef(0);
+  const panelRef    = useRef<HTMLDivElement>(null);
+
+  const onResizeMouseDown = useCallback((e: React.MouseEvent) => {
+    e.preventDefault();
+    isDraggingV.current  = true;
+    dragStartY.current   = e.clientY;
+    dragStartH.current   = panelRef.current?.offsetHeight ?? window.innerHeight;
+
+    const onMove = (ev: MouseEvent) => {
+      if (!isDraggingV.current) return;
+      const delta  = ev.clientY - dragStartY.current;
+      const newH   = Math.max(120, Math.min(window.innerHeight - 40, dragStartH.current + delta));
+      setPanelHeight(newH);
+    };
+    const onUp = () => {
+      isDraggingV.current = false;
+      window.removeEventListener("mousemove", onMove);
+      window.removeEventListener("mouseup",   onUp);
+    };
+    window.addEventListener("mousemove", onMove);
+    window.addEventListener("mouseup",   onUp);
+  }, []);
 
   useEffect(() => {
     const checkScreenSize = () => {
@@ -259,7 +304,9 @@ export function AssetPanel() {
 
   return (
     <div
-      className={`relative flex h-full ${isOpen ? "w-80" : "w-[80px]"} bg-panel border-r border-panel-border transition-all duration-300 ease-in-out overflow-hidden`}
+      ref={panelRef}
+      style={panelHeight !== null ? { height: panelHeight } : undefined}
+      className={`relative flex ${panelHeight !== null ? "" : "h-full"} ${isOpen ? "w-80" : "w-[80px]"} bg-panel border-r border-panel-border transition-all duration-300 ease-in-out overflow-hidden flex-col`}
     >
       {/* Expand button when collapsed */}
 
@@ -676,12 +723,54 @@ export function AssetPanel() {
         {activeTab === "characters" && (
           <div className="flex flex-col h-full">
             <div className="p-4 border-b border-panel-border">
-              <h2 className="font-semibold text-foreground">Characters</h2>
+              <h2 className="font-semibold text-foreground">Characters & Props</h2>
               <p className="text-xs text-muted-foreground mt-1">
-                26 animations — drag onto canvas to add
+                28 animations · 6 props — drag onto canvas
               </p>
             </div>
             <div className="flex-1 overflow-y-auto p-4 custom-scrollbar space-y-5">
+              {/* ── Props ── */}
+              {propGroups.map((group) => (
+                <div key={group.label}>
+                  <div className="flex items-center gap-2 mb-2">
+                    <div className="w-2 h-2 rounded-full shrink-0" style={{ backgroundColor: group.color }} />
+                    <span className="text-[10px] font-semibold uppercase tracking-wider" style={{ color: group.color }}>
+                      {group.label}
+                    </span>
+                    <div className="flex-1 h-px" style={{ backgroundColor: group.color + "22" }} />
+                  </div>
+                  <div className="grid grid-cols-2 gap-2">
+                    {group.assets.map((asset) => (
+                      <div
+                        key={asset.id}
+                        draggable
+                        onDragStart={(e) => handleDragStart(e, asset)}
+                        className="group flex items-center gap-2 p-2.5 rounded-lg border cursor-grab active:cursor-grabbing transition-all select-none"
+                        style={{ backgroundColor: (asset.color ?? "#f97316") + "0d", borderColor: (asset.color ?? "#f97316") + "33" }}
+                        onMouseEnter={(e) => {
+                          (e.currentTarget as HTMLElement).style.borderColor = (asset.color ?? "#f97316") + "88";
+                          (e.currentTarget as HTMLElement).style.backgroundColor = (asset.color ?? "#f97316") + "1a";
+                        }}
+                        onMouseLeave={(e) => {
+                          (e.currentTarget as HTMLElement).style.borderColor = (asset.color ?? "#f97316") + "33";
+                          (e.currentTarget as HTMLElement).style.backgroundColor = (asset.color ?? "#f97316") + "0d";
+                        }}
+                      >
+                        <div className="w-9 h-9 rounded-md flex items-center justify-center text-xl shrink-0" style={{ backgroundColor: (asset.color ?? "#f97316") + "22" }}>
+                          {asset.icon}
+                        </div>
+                        <div className="flex-1 min-w-0">
+                          <p className="text-[11px] font-medium leading-tight truncate capitalize" style={{ color: asset.color ?? "#e2e8f0" }}>
+                            {asset.name.replace(/_/g, " ")}
+                          </p>
+                          <p className="text-[9px] text-muted-foreground mt-0.5">drag to canvas</p>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              ))}
+              {/* ── Character Animations ── */}
               {characterGroups.map((group) => (
                 <div key={group.label}>
                   {/* Group header */}
@@ -743,6 +832,15 @@ export function AssetPanel() {
             </div>
           </div>
         )}
+      </div>
+
+      {/* ── Vertical resize handle ── */}
+      <div
+        onMouseDown={onResizeMouseDown}
+        className="absolute bottom-0 left-0 right-0 h-2 cursor-ns-resize z-30 group flex items-center justify-center"
+        title="Drag to resize panel height"
+      >
+        <div className="w-10 h-1 rounded-full bg-panel-border group-hover:bg-primary/50 transition-colors" />
       </div>
     </div>
   );

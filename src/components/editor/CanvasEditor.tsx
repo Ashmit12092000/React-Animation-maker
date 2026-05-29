@@ -13,7 +13,7 @@ import * as PIXI from "pixi.js";
 import { useEditorStore, type Asset } from "@/stores/editorStore";
 import { ContextMenu } from "./ContextMenu";
 import { PathDrawOverlay } from "./PathDrawOverlay";
-import { loadCharacter, hookPixiTicker } from "@/lib/dragonbonesRenderer";
+import { loadCharacter, loadProp, hookPixiTicker } from "@/lib/dragonbonesRenderer";
 
 (window as any).PIXI = PIXI;
 
@@ -220,6 +220,18 @@ export function CanvasEditor() {
         }
       }
 
+      if ((obj as any).customType === 'prop') {
+        const display = (obj as any).armatureDisplay;
+        if (display) {
+          const dbScale    = (obj as any).dbScale ?? 1;
+          const userScaleX = obj.scaleX || 1;
+          const userScaleY = obj.scaleY || 1;
+          display.x = obj.left || 0;
+          display.y = obj.top  || 0;
+          display.scale.set(dbScale * Math.max(userScaleX, userScaleY));
+        }
+      }
+
 
       const cvs = obj.canvas!;
       const scaledWidth = obj.getScaledWidth();
@@ -253,6 +265,18 @@ export function CanvasEditor() {
           const userScaleY = target.scaleY || 1;
           display.x = (target.left || 0) + (charW * userScaleX) / 2;
           display.y = (target.top  || 0) +  charH * userScaleY;
+          display.scale.set(dbScale * Math.max(userScaleX, userScaleY));
+        }
+      }
+
+      if (target && (target as any).customType === "prop") {
+        const display = (target as any).armatureDisplay;
+        if (display) {
+          const dbScale    = (target as any).dbScale ?? 1;
+          const userScaleX = target.scaleX || 1;
+          const userScaleY = target.scaleY || 1;
+          display.x = target.left || 0;
+          display.y = target.top  || 0;
           display.scale.set(dbScale * Math.max(userScaleX, userScaleY));
         }
       }
@@ -549,6 +573,60 @@ export function CanvasEditor() {
 
         } catch (err) {
           console.error("[DragonBones] Failed to load character:", err);
+        }
+      })();
+    } else if (asset.type === ("prop" as any)) {
+      // ── Prop armature (chair, tshirt, car, food, long_broom, cup) ───────────
+      // Build a placeholder proxy rect first; swap in the PIXI display async.
+      const PLACEHOLDER_W = 120;
+      const PLACEHOLDER_H = 100;
+
+      const proxy = new Rect({
+        left:        baseLeft,
+        top:         baseTop,
+        width:       PLACEHOLDER_W,
+        height:      PLACEHOLDER_H,
+        fill:        "rgba(249,115,22,0.08)",
+        stroke:      "rgba(249,115,22,0.5)",
+        strokeWidth: 1,
+        strokeDashArray: [4, 4],
+        rx: 4,
+        ry: 4,
+      });
+      addObjectToCanvas(proxy, id, asset);
+
+      (async () => {
+        try {
+          const pixiApp = pixiAppRef.current;
+          if (!pixiApp) { console.error("[DragonBones] PIXI app not ready for prop"); return; }
+
+          const { display, dbScale, proxyW, proxyH } = await loadProp(asset.name as any);
+
+          // Resize the proxy to match the actual prop dimensions
+          proxy.set({ width: proxyW, height: proxyH });
+          proxy.setCoords();
+          fabricRef.current?.renderAll();
+
+          display.scale.set(dbScale);
+          // DragonBones AABB origin is top-left; PIXI pivot is at (0,0) of the armature root.
+          // Position display so top-left of AABB matches proxy top-left.
+          display.x = (proxy.left ?? baseLeft);
+          display.y = (proxy.top  ?? baseTop);
+
+          pixiApp.stage.addChild(display);
+
+          (proxy as any).armatureDisplay  = display;
+          (proxy as any).dbScale          = dbScale;
+          (proxy as any).propW            = proxyW;
+          (proxy as any).propH            = proxyH;
+          armatureDisplaysRef.current.push(display);
+
+          const startAnim = display.animation.lastAnimationName ?? "";
+          useEditorStore.getState().updateTrack(id, { characterAnimation: startAnim });
+
+          console.log(`[DragonBones] Prop '${asset.name}' added to canvas`);
+        } catch (err) {
+          console.error("[DragonBones] Failed to load prop:", err);
         }
       })();
     } else if (asset.type === "video") {

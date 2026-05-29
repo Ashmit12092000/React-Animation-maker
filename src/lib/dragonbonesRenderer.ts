@@ -83,15 +83,12 @@ export async function loadCharacter(
   await ensureFactoryLoaded();
 
   const factory = PixiFactory.factory;
-  // The armature name comes from the skeleton JSON armature[0].name
   const armatureName = "character";
 
   const display = factory.buildArmatureDisplay(armatureName);
   if (!display) throw new Error(`[DragonBones] Could not build armature: ${armatureName}`);
 
-  // Hide IK target slots — they are rig control handles, not visual parts.
-  // displayIndex = -1 tells DragonBones to render nothing for that slot
-  // while keeping the IK constraints fully functional.
+  // Hide IK target slots
   for (const slot of display.armature.getSlots()) {
     if (slot.name.toLowerCase().includes("iktarget") || slot.name.toLowerCase().includes("ik_target")) {
       slot.displayIndex = -1;
@@ -100,15 +97,79 @@ export async function loadCharacter(
 
   const animations: string[] = display.animation.animationNames;
 
-  // Play the requested animation (or the first available one)
   const target =
     animations.find((a) => a.toLowerCase() === (animationName ?? "").toLowerCase()) ??
     animations[0];
 
   if (target) {
-    display.animation.play(target, 0); // 0 = loop forever
+    display.animation.play(target, 0);
     console.log("[DragonBones] Playing:", target, "| Available:", animations);
   }
 
   return { display, animations };
+}
+
+// ─── Prop armature names (must match inject_props.py exactly) ────────────────
+export const PROP_ARMATURE_NAMES = ["chair", "tshirt", "car", "food", "long_broom", "cup"] as const;
+export type PropName = typeof PROP_ARMATURE_NAMES[number];
+
+/** AABB dimensions for each prop (used to size the proxy rect on canvas) */
+const PROP_AABB: Record<PropName, { w: number; h: number }> = {
+  chair:      { w: 240, h: 340 },
+  tshirt:     { w: 200, h: 300 },
+  car:        { w: 600, h: 250 },
+  food:       { w: 240, h: 140 },
+  long_broom: { w: 80,  h: 380 },
+  cup:        { w: 90,  h: 120 },
+};
+
+/** Target pixel heights for props on a 540px-tall canvas (tuned visually) */
+const PROP_TARGET_H: Record<PropName, number> = {
+  chair:      160,
+  tshirt:     140,
+  car:        160,
+  food:        80,
+  long_broom: 200,
+  cup:         70,
+};
+
+/**
+ * Build a prop armature display.
+ * Returns the PixiJS display + scale + canvas proxy dimensions.
+ */
+export async function loadProp(
+  propName: PropName,
+  animationName?: string
+): Promise<{
+  display: import("dragonbones-pixijs").PixiArmatureDisplay;
+  animations: string[];
+  dbScale: number;
+  proxyW: number;
+  proxyH: number;
+}> {
+  await ensureFactoryLoaded();
+
+  const factory = PixiFactory.factory;
+  const display = factory.buildArmatureDisplay(propName);
+  if (!display) throw new Error(`[DragonBones] Could not build prop armature: ${propName}`);
+
+  const aabb = PROP_AABB[propName];
+  const targetH = PROP_TARGET_H[propName];
+  const dbScale = targetH / aabb.h;
+  const proxyW  = Math.round(aabb.w * dbScale);
+  const proxyH  = targetH;
+
+  display.scale.set(dbScale);
+
+  const animations: string[] = display.animation.animationNames;
+  const target =
+    animations.find((a) => a.toLowerCase() === (animationName ?? "").toLowerCase()) ??
+    animations[0];
+
+  if (target) {
+    display.animation.play(target, 0);
+    console.log(`[DragonBones] Prop '${propName}' playing: ${target}`);
+  }
+
+  return { display, animations, dbScale, proxyW, proxyH };
 }
