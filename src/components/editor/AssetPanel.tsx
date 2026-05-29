@@ -306,7 +306,7 @@ export function AssetPanel() {
     <div
       ref={panelRef}
       style={panelHeight !== null ? { height: panelHeight } : undefined}
-      className={`relative flex ${panelHeight !== null ? "" : "h-full"} ${isOpen ? "w-80" : "w-[80px]"} bg-panel border-r border-panel-border transition-all duration-300 ease-in-out overflow-hidden flex-col`}
+      className={`relative flex ${panelHeight !== null ? "" : "h-full"} ${isOpen ? "w-80" : "w-[80px]"} bg-panel border-r border-panel-border transition-all duration-300 ease-in-out overflow-hidden flex-row`}
     >
       {/* Expand button when collapsed */}
 

@@ -557,16 +557,28 @@ export interface PropActionPopupProps {
   propName: string; // "cup" | "chair"
   propPosition: { x: number; y: number }; // canvas coords of the prop
   canvasEl: HTMLCanvasElement | null;
+  propTrackId: string; // track id of the prop fabric object
   onClose: () => void;
 }
+
+// Seat offset relative to the prop proxy's top-left corner (in proxy pixels).
+// These are "where the character's feet should land" relative to the prop.
+const PROP_SEAT_OFFSET: Record<string, { x: number; y: number }> = {
+  chair: { x: 0.5, y: 0.85 }, // 50% across, 85% down the chair proxy
+  cup:   { x: 0.5, y: 1.0  }, // stand in front of cup
+};
+
+// Which animation names count as "travel" (i.e. character moves along path)
+const TRAVEL_ANIMATIONS = new Set(["walk", "run"]);
 
 export function PropActionPopup({
   propName,
   propPosition,
   canvasEl,
+  propTrackId,
   onClose,
 }: PropActionPopupProps) {
-  const { tracks, commitCharacterSequenceAction, updateTrack } = useEditorStore();
+  const { tracks, commitCharacterSequenceAction, updateTrack, assignPathToTrack } = useEditorStore();
 
   const config = PROP_CONFIG[propName.toLowerCase()];
   const popupRef = useRef<HTMLDivElement>(null);
@@ -643,17 +655,113 @@ export function PropActionPopup({
 
   const handleApply = () => {
     if (!selectedAction) return;
-    const steps = stepsToSequence(selectedAction.steps);
 
     const targets =
       selectedCharIds.length > 0 ? selectedCharIds : characterTrackIds;
 
+    // Find which steps are "travel" steps (walk/run) vs stationary
+    const hasTravelStep = selectedAction.steps.some((s) =>
+      TRAVEL_ANIMATIONS.has(s.animation)
+    );
+
     targets.forEach((trackId) => {
       const track = tracks.find((t) => t.id === trackId);
       if (!track) return;
-      const totalDur = steps.reduce((s, st) => s + st.duration, 0);
-      commitCharacterSequenceAction(trackId, steps);
-      updateTrack(trackId, { endTime: track.startTime + totalDur });
+
+      const totalDur = selectedAction.steps.reduce((s, st) => s + st.duration, 0);
+
+      if (hasTravelStep) {
+        // ── Walk-to-prop mode ────────────────────────────────────────────
+        // Compute a straight-line path from the character's current position
+        // to just in front of the prop's seat point.
+
+        const charProxy = track.fabricObject as any;
+        const charLeft  = charProxy?.left ?? 0;
+        const charTop   = charProxy?.top  ?? 0;
+        const charW     = charProxy?.charW ?? (charProxy?.width ?? 103);
+        const charH     = charProxy?.charH ?? (charProxy?.height ?? 300);
+
+        // Find the prop track to get the prop's canvas position
+        const propTrack = tracks.find((t) => t.id === propTrackId);
+        const propProxy = propTrack?.fabricObject as any;
+        const propLeft  = propProxy?.left  ?? propPosition.x;
+        const propTop   = propProxy?.top   ?? propPosition.y;
+        const propW     = propProxy?.width  ?? 120;
+        const propH     = propProxy?.height ?? 100;
+
+        // --- Destination X: centre the character on the chair seat ---
+        const seatPct   = PROP_SEAT_OFFSET[propName.toLowerCase()] ?? { x: 0.5, y: 1.0 };
+        const destFootX = propLeft + propW * seatPct.x;
+        // proxy top-left X so character is centred on the chair seat
+        const destLeft  = destFootX - charW / 2;
+
+        // --- Path Y: KEEP the character at their current ground level ---
+        // The walk animation plays on flat ground; the DragonBones sit_down
+        // animation handles the visual transition from standing to seated.
+        // We do NOT move the proxy vertically during the walk — only X changes.
+        const walkDestTop = charTop; // same Y throughout the walk
+
+        // Build a purely HORIZONTAL path (constant Y = charTop).
+        // This makes the character walk in a perfectly straight line.
+        const SAMPLES = 60;
+        const pathPoints = Array.from({ length: SAMPLES + 1 }, (_, i) => ({
+          x: charLeft + (destLeft - charLeft) * (i / SAMPLES),
+          y: walkDestTop,
+        }));
+
+        // Assign path to the character track.
+        // assignPathToTrack will compute originOffset = charLeft - pathPoints[0].x = 0
+        // (since pathPoints[0] = {x: charLeft, y: charTop}), so the proxy starts exactly where it is.
+        const pathAnim = {
+          points: pathPoints,
+          totalLength: 0,
+          orientToPath: false,
+          speed: 1,
+        };
+        assignPathToTrack(trackId, pathAnim);
+
+        // Build sequence steps with pathSegment markers.
+        // Travel steps get a pathSegment (0→1 along path).
+        // Stationary steps (sit_down, sit_idle) have no pathSegment.
+        let travelDuration = 0;
+        selectedAction.steps.forEach((s) => {
+          if (TRAVEL_ANIMATIONS.has(s.animation)) travelDuration += s.duration;
+        });
+
+        // Distribute path progress across all travel steps proportionally
+        let pathCursor = 0;
+        const steps = selectedAction.steps.map((s) => {
+          const isTravel = TRAVEL_ANIMATIONS.has(s.animation);
+          if (isTravel) {
+            const segFraction = travelDuration > 0 ? s.duration / travelDuration : 1;
+            const from = pathCursor;
+            const to   = pathCursor + segFraction;
+            pathCursor = to;
+            return {
+              id: uid(),
+              animation: s.animation,
+              duration: s.duration,
+              pathSegment: { from, to: Math.min(1, to) },
+            };
+          }
+          return {
+            id: uid(),
+            animation: s.animation,
+            duration: s.duration,
+          };
+        });
+
+        commitCharacterSequenceAction(trackId, steps);
+        updateTrack(trackId, {
+          endTime: track.startTime + totalDur,
+        });
+
+      } else {
+        // ── Stationary sequence (cup actions, get_up, sit_down in place) ──
+        const steps = stepsToSequence(selectedAction.steps);
+        commitCharacterSequenceAction(trackId, steps);
+        updateTrack(trackId, { endTime: track.startTime + totalDur });
+      }
     });
 
     onClose();

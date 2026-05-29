@@ -369,6 +369,29 @@ export const createTrackSlice: StateCreator<EditorState, [], [], TrackSlice> = (
         }
       }
 
+      // ── Standalone sequence action (no path) ─────────────────────────────
+      // Handles prop actions like "sit on chair" or "hold cup" where the
+      // character stays in place but cycles through animation steps over time.
+      const standaloneSeq = (track as any).sequenceAction as import("../../types").CharacterSequenceAction | null;
+      if (standaloneSeq && standaloneSeq.steps.length > 0 && !(track.pathAnimation && track.pathAnimation.points.length > 1)) {
+        const display = (track.fabricObject as any).armatureDisplay;
+        if (display) {
+          const elapsed = Math.max(0, time - track.startTime);
+          let seqCursor = 0;
+          let activeAnim: string = standaloneSeq.steps[standaloneSeq.steps.length - 1].animation;
+          for (const step of standaloneSeq.steps) {
+            if (elapsed < seqCursor + step.duration || step === standaloneSeq.steps[standaloneSeq.steps.length - 1]) {
+              activeAnim = step.animation;
+              break;
+            }
+            seqCursor += step.duration;
+          }
+          if (display.animation.lastAnimationName !== activeAnim) {
+            display.animation.play(activeAnim, 0);
+          }
+        }
+      }
+
       if (track.pathAnimation && track.pathAnimation.points.length > 1) {
         const pa       = track.pathAnimation;
         const action   = (track as any).pendingPathAction as { travelAnim: string; arrivalBehavior: "keep" | "idle" } | null;

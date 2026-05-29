@@ -30,6 +30,7 @@ export function CanvasEditor() {
     propName: string;
     position: { x: number; y: number };
     canvasEl: HTMLCanvasElement | null;
+    propTrackId: string;
   } | null>(null);
 
 
@@ -93,6 +94,9 @@ export function CanvasEditor() {
         }
         
         pixiAppRef.current = pixiApp;
+
+        // Enable zIndex-based sorting so characters always render above props
+        pixiApp.stage.sortableChildren = true;
         
         // Ensure ticker is running
         if (!pixiApp.ticker.started) {
@@ -209,6 +213,7 @@ export function CanvasEditor() {
         propName,
         position: { x: cx, y: cy },
         canvasEl: canvasRef.current,
+        propTrackId: (target as any)._customId ?? "",
       });
     });
 
@@ -585,6 +590,8 @@ export function CanvasEditor() {
           display.x = (proxy.left ?? baseLeft) + charW / 2;
           display.y = (proxy.top  ?? baseTop)  + charH;
 
+          // Characters always render above props
+          display.zIndex = 10;
           pixiApp.stage.addChild(display);
 
           // Store reference so we can sync position on move/scale
@@ -641,6 +648,8 @@ export function CanvasEditor() {
           display.x = (proxy.left ?? baseLeft) + offsetX;
           display.y = (proxy.top  ?? baseTop)  + offsetY;
 
+          // Props always render below characters
+          display.zIndex = 0;
           pixiApp.stage.addChild(display);
 
           (proxy as any).armatureDisplay  = display;
@@ -1015,6 +1024,7 @@ export function CanvasEditor() {
           propName={propPopup.propName}
           propPosition={propPopup.position}
           canvasEl={propPopup.canvasEl}
+          propTrackId={propPopup.propTrackId}
           onClose={() => setPropPopup(null)}
         />
       )}
