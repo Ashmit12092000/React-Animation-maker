@@ -686,12 +686,21 @@ export function CharacterSequencePopup({ trackId, pathEndPoint, canvasEl, onClos
   const { tracks, commitCharacterSequenceAction, updateTrack } = useEditorStore();
   const track = tracks.find((t) => t.id === trackId);
 
+  // If there's a path, default to a walk sequence. Otherwise default to stationary.
+  const hasPath = !!(track?.pathAnimation && track.pathAnimation.points.length > 1);
+
   const [steps, setSteps] = useState<SequenceStep[]>(() =>
-    distributePathSegments([
-      { id: uid(), animation: "Idle", duration: 3 },
-      { id: uid(), animation: "walk", duration: 8 },
-      { id: uid(), animation: "Idle", duration: 3 },
-    ])
+    hasPath
+      ? distributePathSegments([
+          { id: uid(), animation: "Idle", duration: 2 },
+          { id: uid(), animation: "walk", duration: 5 },
+          { id: uid(), animation: "Idle", duration: 2 },
+        ])
+      : [
+          { id: uid(), animation: "Idle", duration: 2 },
+          { id: uid(), animation: "wave", duration: 3 },
+          { id: uid(), animation: "Idle", duration: 1 },
+        ]
   );
 
   const [pos, setPos]             = useState<{ screenX: number; screenY: number } | null>(null);

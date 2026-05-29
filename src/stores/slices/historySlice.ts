@@ -261,7 +261,16 @@ export const createHistorySlice: StateCreator<EditorState, [], [], HistorySlice>
   },
 
   captureState: (trackId) => {
-    get().saveCheckpoint();
+    // Save a debounced checkpoint so rapid drags don't flood history
+    // (saveCheckpoint is idempotent when tracks haven't changed)
+    const { past, tracks } = get();
+    const last = past[past.length - 1];
+    const hasChanged = !last || last.length !== tracks.length ||
+      last.some((t, i) => {
+        const curr = tracks[i];
+        return !curr || t.id !== curr.id || JSON.stringify(t.keyframes) !== JSON.stringify(curr.keyframes);
+      });
+    if (hasChanged) get().saveCheckpoint();
     set((state) => ({
       tracks: state.tracks.map((t) => {
         if (t.id === trackId && t.fabricObject) {

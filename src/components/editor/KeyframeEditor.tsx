@@ -56,7 +56,7 @@ export function KeyframeEditor() {
             type="number"
             step="0.1"
             min="0"
-            max="5"
+            max={track.endTime ?? 999}
             value={selectedKeyframe.time}
             onChange={(e) => handleUpdate({ time: Number(e.target.value) })}
             className="h-8 bg-secondary border-panel-border text-sm"

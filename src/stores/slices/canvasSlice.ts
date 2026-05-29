@@ -80,8 +80,11 @@ export const createCanvasSlice: StateCreator<EditorState, [], [], CanvasSlice> =
     if (!selectedObject || !selectedObjectId) return;
 
     selectedObject.set(property as any, value as any);
+    if (property === 'angle' || property === 'left' || property === 'top') {
+      selectedObject.setCoords();
+    }
     canvas?.renderAll();
-    // Record state change without creating animation keyframe
+    // Update initialState without flooding history (captureState handles dedup)
     get().captureState(selectedObjectId);
   },
 

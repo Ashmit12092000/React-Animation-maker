@@ -42,6 +42,11 @@ export function interpolateProperties(keyframes: Keyframe[], time: number) {
   for (const key in prevKeyframe.properties) {
     const start = prevKeyframe.properties[key as keyof typeof prevKeyframe.properties];
     const end = nextKeyframe.properties[key as keyof typeof nextKeyframe.properties];
+    if (start === undefined) continue;
+    if (end === undefined) {
+      interpolated[key] = start;
+      continue;
+    }
     interpolated[key] = start + (end - start) * easedT;
   }
 

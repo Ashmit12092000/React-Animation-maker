@@ -304,13 +304,17 @@ export function Timeline() {
 
   const handleReset = () => { setIsPlaying(false); setCurrentTime(0); applyKeyframesAtTime(0); };
 
+  const maxDurationRef = useRef(maxDuration);
+  useEffect(() => { maxDurationRef.current = maxDuration; }, [maxDuration]);
+
   useEffect(() => {
     if (isPlaying) {
       const animate = (ts: number) => {
         const elapsed = (ts - startTimeRef.current) / 1000;
-        if (elapsed >= maxDuration) {
-          setCurrentTime(maxDuration);
-          applyKeyframesAtTime(maxDuration); // ensure arrival frame runs before isPlaying flips
+        const currentMax = maxDurationRef.current;
+        if (elapsed >= currentMax) {
+          setCurrentTime(currentMax);
+          applyKeyframesAtTime(currentMax); // ensure arrival frame runs before isPlaying flips
           setIsPlaying(false);
           syncAudioPlayback();
           return;
@@ -325,7 +329,7 @@ export function Timeline() {
       syncAudioPlayback();
     }
     return () => { if (animationRef.current) cancelAnimationFrame(animationRef.current); };
-  }, [isPlaying, maxDuration, setCurrentTime, applyKeyframesAtTime, syncAudioPlayback, setIsPlaying]);
+  }, [isPlaying, setCurrentTime, applyKeyframesAtTime, syncAudioPlayback, setIsPlaying]);
 
   const handleTrackClick = (e: React.MouseEvent, track: (typeof tracks)[0]) => {
     e.stopPropagation(); // prevent bubbling to handleTimelineClick (which would move the playhead)
@@ -643,9 +647,11 @@ export function Timeline() {
               <div
                 key={track.id}
                 onClick={(e) => handleTrackClick(e, track)}
+                className="relative flex items-center gap-1.5 px-2 h-12 cursor-pointer transition-colors overflow-hidden"
                 style={{
                   background: isSelected ? "rgba(255,255,255,0.06)" : undefined,
                   boxShadow: isSelected ? `inset 2px 0 0 ${c.dot}` : undefined,
+                  borderBottom: "1px solid rgba(255,255,255,0.035)",
                 }}
               >
                 {isSelected && (

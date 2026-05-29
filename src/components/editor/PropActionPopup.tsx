@@ -146,6 +146,143 @@ const PROP_CONFIG: Record<string, {
     accentColor: "#8b5cf6",
     actions: CHAIR_ACTIONS,
   },
+  food: {
+    label: "Food",
+    icon: "🍽️",
+    accentColor: "#10b981",
+    actions: [
+      {
+        id: "flip_food_action",
+        label: "Flip Food",
+        icon: "🍳",
+        description: "Walk to stove and flip the food",
+        color: "#10b981",
+        steps: [
+          { animation: "walk",      duration: 2,   label: "Walk to stove" },
+          { animation: "flip_food", duration: 3,   label: "Flip food" },
+          { animation: "Idle",      duration: 1,   label: "Stand" },
+        ],
+      },
+      {
+        id: "eat_food",
+        label: "Eat",
+        icon: "🍽️",
+        description: "Sit down and eat",
+        color: "#22c55e",
+        steps: [
+          { animation: "sit_down", duration: 1.5, label: "Sit" },
+          { animation: "eat",      duration: 4,   label: "Eat meal" },
+          { animation: "sit_idle", duration: 1,   label: "Finished" },
+        ],
+      },
+      {
+        id: "wipe_table_action",
+        label: "Wipe Table",
+        icon: "🧹",
+        description: "Walk over and wipe the table",
+        color: "#06b6d4",
+        steps: [
+          { animation: "walk",       duration: 2, label: "Walk to table" },
+          { animation: "wipe_table", duration: 3, label: "Wipe table" },
+          { animation: "Idle",       duration: 1, label: "Done" },
+        ],
+      },
+    ],
+  },
+  long_broom: {
+    label: "Long Broom",
+    icon: "🧹",
+    accentColor: "#06b6d4",
+    actions: [
+      {
+        id: "sweep_floor",
+        label: "Sweep Floor",
+        icon: "🧹",
+        description: "Walk and sweep the floor",
+        color: "#06b6d4",
+        steps: [
+          { animation: "walk",       duration: 3, label: "Walk with broom" },
+          { animation: "wipe_table", duration: 4, label: "Sweep" },
+          { animation: "Idle",       duration: 1, label: "Done" },
+        ],
+      },
+      {
+        id: "pick_up_broom",
+        label: "Pick Up & Sweep",
+        icon: "📦",
+        description: "Pick up the broom and start sweeping",
+        color: "#8b5cf6",
+        steps: [
+          { animation: "pick_up_box", duration: 2, label: "Pick up broom" },
+          { animation: "wipe_table",  duration: 4, label: "Sweep floor" },
+          { animation: "Idle",        duration: 1, label: "Rest" },
+        ],
+      },
+    ],
+  },
+  tshirt: {
+    label: "T-Shirt",
+    icon: "👕",
+    accentColor: "#f97316",
+    actions: [
+      {
+        id: "put_on_shirt_action",
+        label: "Put On Shirt",
+        icon: "👕",
+        description: "Pick up and put on the shirt",
+        color: "#f97316",
+        steps: [
+          { animation: "Idle",         duration: 0.5, label: "Ready" },
+          { animation: "pick_up_box",  duration: 1.5, label: "Pick up shirt" },
+          { animation: "put_on_shirt", duration: 3,   label: "Put it on" },
+          { animation: "Idle",         duration: 1,   label: "Done" },
+        ],
+      },
+      {
+        id: "stretch_and_dress",
+        label: "Stretch & Dress",
+        icon: "🙆",
+        description: "Morning stretch then put on shirt",
+        color: "#f59e0b",
+        steps: [
+          { animation: "stretch",      duration: 2, label: "Morning stretch" },
+          { animation: "put_on_shirt", duration: 3, label: "Put on shirt" },
+          { animation: "Idle",         duration: 1, label: "Ready" },
+        ],
+      },
+    ],
+  },
+  car: {
+    label: "Car",
+    icon: "🚗",
+    accentColor: "#3b82f6",
+    actions: [
+      {
+        id: "walk_to_car",
+        label: "Walk to Car",
+        icon: "🚶",
+        description: "Walk over and get in the car",
+        color: "#3b82f6",
+        steps: [
+          { animation: "walk",     duration: 3, label: "Walk to car" },
+          { animation: "sit_down", duration: 2, label: "Get in" },
+          { animation: "sit_idle", duration: 2, label: "Seated" },
+        ],
+      },
+      {
+        id: "wave_at_car",
+        label: "Wave at Car",
+        icon: "👋",
+        description: "Wave as the car arrives",
+        color: "#22c55e",
+        steps: [
+          { animation: "Idle", duration: 0.5, label: "Wait" },
+          { animation: "wave", duration: 3,   label: "Wave" },
+          { animation: "Idle", duration: 1,   label: "Done" },
+        ],
+      },
+    ],
+  },
 };
 
 /* ─── Helper ─────────────────────────────────────────────────────────────── */
@@ -581,6 +718,8 @@ export function PropActionPopup({
   const { tracks, commitCharacterSequenceAction, updateTrack, assignPathToTrack, removePathFromTrack } = useEditorStore();
 
   const config = PROP_CONFIG[propName.toLowerCase()];
+  // Fallback: if propName is not in PROP_CONFIG, don't render (already handled by parent checks)
+  if (!config) return null;
   const popupRef = useRef<HTMLDivElement>(null);
 
   // All character tracks on the canvas
@@ -686,32 +825,31 @@ export function PropActionPopup({
         const propProxy = propTrack?.fabricObject as any;
         const propLeft  = propProxy?.left  ?? propPosition.x;
         const propTop   = propProxy?.top   ?? propPosition.y;
-        const propW     = propProxy?.width  ?? 120;
-        const propH     = propProxy?.height ?? 100;
+        const propW     = propProxy?.getScaledWidth?.()  ?? (propProxy?.width  ?? 120);
+        const propH     = propProxy?.getScaledHeight?.() ?? (propProxy?.height ?? 100);
 
-        // --- Destination X: centre the character on the chair seat ---
+        // Seat offset: where the character's feet should land, relative to prop top-left
         const seatPct   = PROP_SEAT_OFFSET[propName.toLowerCase()] ?? { x: 0.5, y: 1.0 };
-        const destFootX = propLeft + propW * seatPct.x;
-        // proxy top-left X so character is centred on the chair seat
-        const destLeft  = destFootX - charW / 2;
 
-        // --- Path Y: KEEP the character at their current ground level ---
-        // The walk animation plays on flat ground; the DragonBones sit_down
-        // animation handles the visual transition from standing to seated.
-        // We do NOT move the proxy vertically during the walk — only X changes.
-        const walkDestTop = charTop; // same Y throughout the walk
+        // Character foot X = proxy left + charW/2  (character proxy is centered on feet)
+        // So: destProxyLeft = seatX - charW/2
+        const seatX     = propLeft + propW * seatPct.x;
+        const destLeft  = seatX - charW / 2;
 
-        // Build a purely HORIZONTAL path (constant Y = charTop).
-        // This makes the character walk in a perfectly straight line.
-        const SAMPLES = 60;
+        // Keep the character at their current ground Y throughout the walk
+        // The DragonBones sit_down animation handles the visual transition
+        const walkDestTop = charTop;
+
+        // Build a smooth horizontal path (constant Y = charTop).
+        // Use enough sample points for smooth PIXI position updates.
+        const SAMPLES = 80;
         const pathPoints = Array.from({ length: SAMPLES + 1 }, (_, i) => ({
           x: charLeft + (destLeft - charLeft) * (i / SAMPLES),
           y: walkDestTop,
         }));
 
-        // Assign path to the character track.
-        // assignPathToTrack will compute originOffset = charLeft - pathPoints[0].x = 0
-        // (since pathPoints[0] = {x: charLeft, y: charTop}), so the proxy starts exactly where it is.
+        // Assign path — assignPathToTrack will set originOffset automatically
+        // so the proxy starts exactly where it currently is.
         const pathAnim = {
           points: pathPoints,
           totalLength: 0,
@@ -721,32 +859,29 @@ export function PropActionPopup({
         assignPathToTrack(trackId, pathAnim);
 
         // Build sequence steps with pathSegment markers.
-        // Travel steps get a pathSegment (0→1 along path).
-        // Stationary steps (sit_down, sit_idle) have no pathSegment.
-        let travelDuration = 0;
-        selectedAction.steps.forEach((s) => {
-          if (TRAVEL_ANIMATIONS.has(s.animation)) travelDuration += s.duration;
-        });
+        // Travel steps (walk/run) get a pathSegment fraction of the full path.
+        // Stationary steps (sit_down, sit_idle) have no pathSegment — they stay at destination.
+        const travelSteps = selectedAction.steps.filter((s) => TRAVEL_ANIMATIONS.has(s.animation));
+        const totalTravelDuration = travelSteps.reduce((acc, s) => acc + s.duration, 0);
 
-        // Distribute path progress across all travel steps proportionally
         let pathCursor = 0;
         const steps = selectedAction.steps.map((s) => {
           const isTravel = TRAVEL_ANIMATIONS.has(s.animation);
-          if (isTravel) {
-            const segFraction = travelDuration > 0 ? s.duration / travelDuration : 1;
+          if (isTravel && totalTravelDuration > 0) {
+            const segFraction = s.duration / totalTravelDuration;
             const from = pathCursor;
-            const to   = pathCursor + segFraction;
+            const to   = Math.min(1, pathCursor + segFraction);
             pathCursor = to;
             return {
               id: uid(),
-              animation: s.animation,
+              animation: s.animation as import("@/types").CharacterAnimName,
               duration: s.duration,
-              pathSegment: { from, to: Math.min(1, to) },
+              pathSegment: { from, to },
             };
           }
           return {
             id: uid(),
-            animation: s.animation,
+            animation: s.animation as import("@/types").CharacterAnimName,
             duration: s.duration,
           };
         });
@@ -757,19 +892,26 @@ export function PropActionPopup({
         });
 
       } else {
-        // ── Stationary sequence (cup actions, get_up, sit_up in place) ──
+        // ── Stationary sequence (cup actions, get_up, sit_down in place) ──
         // If the track previously had a walk path (e.g. "Walk & Sit"), the
-        // character's fabricObject is already at the chair.  Clear the path
-        // first so applyKeyframesAtTime stops overriding the position, then
-        // snap a keyframe at the current canvas location so the character
-        // stays exactly where they are for the new sequence.
+        // character's fabricObject is already at the chair. Clear the path
+        // so applyKeyframesAtTime stops overriding position with path coords,
+        // then pin a keyframe at the current canvas location.
         if (track.pathAnimation && track.pathAnimation.points.length > 1) {
           const charProxy = track.fabricObject as any;
           if (charProxy) {
-            // Freeze the object at its current rendered position so the
-            // next sequence starts from the chair, not from the walk origin.
-            charProxy.set({ left: charProxy.left, top: charProxy.top });
-            charProxy.setCoords?.();
+            // Freeze initialState at the character's current rendered position
+            // so the new sequence starts exactly from the chair / current spot.
+            updateTrack(trackId, {
+              initialState: {
+                left:    charProxy.left    ?? 0,
+                top:     charProxy.top     ?? 0,
+                scaleX:  charProxy.scaleX  ?? 1,
+                scaleY:  charProxy.scaleY  ?? 1,
+                angle:   charProxy.angle   ?? 0,
+                opacity: charProxy.opacity ?? 1,
+              },
+            });
           }
           removePathFromTrack(trackId);
         }
@@ -782,7 +924,7 @@ export function PropActionPopup({
     onClose();
   };
 
-  if (!pos || !config) return null;
+  if (!pos) return null;
 
   return (
     <div

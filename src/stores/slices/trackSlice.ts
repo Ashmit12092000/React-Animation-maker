@@ -262,7 +262,7 @@ export const createTrackSlice: StateCreator<EditorState, [], [], TrackSlice> = (
       return {
         tracks: state.tracks.map((t) => {
           if (t.id === trackId) {
-            const existingIndex = t.keyframes.findIndex((kf) => Math.abs(kf.time - state.currentTime) < 0.05);
+            const existingIndex = t.keyframes.findIndex((kf) => Math.abs(kf.time - state.currentTime) < 0.1);
             let newKeyframes;
             if (existingIndex >= 0) {
               newKeyframes = [...t.keyframes];
@@ -303,6 +303,21 @@ export const createTrackSlice: StateCreator<EditorState, [], [], TrackSlice> = (
   applyKeyframesAtTime: (time) => {
     const { tracks, canvas, selectedObject, isPlaying, selectedTrackId, setSelectedObject } = get();
 
+    // Helper: given a list of sequence steps and elapsed time, return which animation is active.
+    // Correctly advances the cursor through completed steps and returns the last step's animation
+    // when elapsed has passed all steps.
+    const findActiveAnimation = (steps: import("../../types").SequenceStep[], elapsed: number): string => {
+      let cursor = 0;
+      for (let i = 0; i < steps.length; i++) {
+        const step = steps[i];
+        if (elapsed < cursor + step.duration || i === steps.length - 1) {
+          return step.animation;
+        }
+        cursor += step.duration;
+      }
+      return steps[steps.length - 1].animation;
+    };
+
     if (isPlaying && selectedTrackId) {
       const currentTrack = tracks.find(t => t.id === selectedTrackId);
       if (currentTrack && time >= currentTrack.endTime) {
@@ -338,14 +353,9 @@ export const createTrackSlice: StateCreator<EditorState, [], [], TrackSlice> = (
       // animation (e.g. Idle) keeps playing instead of disappearing.
       const hasPath = !!(track.pathAnimation && track.pathAnimation.points.length > 1);
       const hasSequence = !!((track as any).sequenceAction?.steps?.length);
-      if (time < track.startTime || (!(hasPath || hasSequence) && time > track.endTime)) {
-        if (canvas && canvas.contains(track.fabricObject)) {
-          canvas.remove(track.fabricObject);
-        }
-        return;
-      }
-      // Hide path-animated / sequence tracks that haven't started yet
-      if ((hasPath || hasSequence) && time < track.startTime) {
+      const hasMotion = hasPath || hasSequence;
+
+      if (time < track.startTime || (!hasMotion && time > track.endTime)) {
         if (canvas && canvas.contains(track.fabricObject)) {
           canvas.remove(track.fabricObject);
         }
@@ -367,25 +377,44 @@ export const createTrackSlice: StateCreator<EditorState, [], [], TrackSlice> = (
           track.fabricObject.setCoords();
           track.fabricObject.dirty = true;
         }
+      } else if (!hasPath && hasSequence) {
+        // Stationary sequence with no keyframes: position from initialState
+        const s = track.initialState as any;
+        if (s) {
+          track.fabricObject.set({
+            left:    s.left    ?? track.fabricObject.left,
+            top:     s.top     ?? track.fabricObject.top,
+            scaleX:  s.scaleX  ?? track.fabricObject.scaleX,
+            scaleY:  s.scaleY  ?? track.fabricObject.scaleY,
+            angle:   s.angle   ?? track.fabricObject.angle,
+            opacity: s.opacity ?? track.fabricObject.opacity,
+          });
+          track.fabricObject.setCoords();
+          track.fabricObject.dirty = true;
+          // Also sync DragonBones display position for stationary characters
+          const dispStatic = (track.fabricObject as any).armatureDisplay;
+          if (dispStatic) {
+            const dbScale = (track.fabricObject as any).dbScale ?? 1;
+            const charW   = (track.fabricObject as any).charW   ?? (track.fabricObject.width  || 103);
+            const charH   = (track.fabricObject as any).charH   ?? (track.fabricObject.height || 300);
+            const usx = track.fabricObject.scaleX || 1;
+            const usy = track.fabricObject.scaleY || 1;
+            dispStatic.x = (s.left ?? 0) + (charW * usx) / 2;
+            dispStatic.y = (s.top  ?? 0) +  charH * usy;
+            dispStatic.scale.set(dbScale * Math.max(usx, usy));
+          }
+        }
       }
 
       // ── Standalone sequence action (no path) ─────────────────────────────
       // Handles prop actions like "sit on chair" or "hold cup" where the
       // character stays in place but cycles through animation steps over time.
       const standaloneSeq = (track as any).sequenceAction as import("../../types").CharacterSequenceAction | null;
-      if (standaloneSeq && standaloneSeq.steps.length > 0 && !(track.pathAnimation && track.pathAnimation.points.length > 1)) {
+      if (standaloneSeq && standaloneSeq.steps.length > 0 && !hasPath) {
         const display = (track.fabricObject as any).armatureDisplay;
         if (display) {
           const elapsed = Math.max(0, time - track.startTime);
-          let seqCursor = 0;
-          let activeAnim: string = standaloneSeq.steps[standaloneSeq.steps.length - 1].animation;
-          for (const step of standaloneSeq.steps) {
-            if (elapsed < seqCursor + step.duration || step === standaloneSeq.steps[standaloneSeq.steps.length - 1]) {
-              activeAnim = step.animation;
-              break;
-            }
-            seqCursor += step.duration;
-          }
+          const activeAnim = findActiveAnimation(standaloneSeq.steps, elapsed);
           if (display.animation.lastAnimationName !== activeAnim) {
             display.animation.play(activeAnim, 0);
           }
@@ -402,36 +431,45 @@ export const createTrackSlice: StateCreator<EditorState, [], [], TrackSlice> = (
         // Determine effective T (0..1) along the path
         let clampedT: number;
         if (seqAction && seqAction.steps.length > 0) {
-          // Walk through sequence steps to find current position
+          // Walk through sequence steps to find current position along path
           let cursor = 0;
-          let effectiveT = 1; // default: end of path
-          for (const step of seqAction.steps) {
+          let effectiveT = 0;
+          // Find the last path segment reached (for stationary steps)
+          let lastReachedPathEnd = 0;
+
+          for (let si = 0; si < seqAction.steps.length; si++) {
+            const step = seqAction.steps[si];
             const stepEnd = cursor + step.duration;
-            if (elapsed <= stepEnd || step === seqAction.steps[seqAction.steps.length - 1]) {
+
+            if (elapsed <= stepEnd) {
+              // We are inside this step
               if (step.pathSegment) {
-                // Lerp within this step's path segment
-                const stepProgress = step.duration > 0 ? Math.min(1, (elapsed - cursor) / step.duration) : 1;
-                effectiveT = step.pathSegment.from + stepProgress * (step.pathSegment.to - step.pathSegment.from);
+                // Moving step: interpolate within the segment
+                const stepProgress = step.duration > 0 ? (elapsed - cursor) / step.duration : 1;
+                effectiveT = step.pathSegment.from + Math.min(1, stepProgress) * (step.pathSegment.to - step.pathSegment.from);
               } else {
-                // Stationary step — stay at the "from" position of the NEXT path step (or last reached position)
-                // Find the last path segment endpoint before this step
-                let lastPathEnd = 0;
-                let c2 = 0;
-                for (const s2 of seqAction.steps) {
-                  if (s2 === step) break;
-                  if (s2.pathSegment) lastPathEnd = s2.pathSegment.to;
-                  c2 += s2.duration;
-                }
-                effectiveT = lastPathEnd;
+                // Stationary step: hold at last reached path position
+                effectiveT = lastReachedPathEnd;
               }
               break;
             }
+
+            // Step is complete — advance
+            if (step.pathSegment) {
+              lastReachedPathEnd = step.pathSegment.to;
+            }
             cursor = stepEnd;
+
+            // If this is the last step and we're past it, clamp at end
+            if (si === seqAction.steps.length - 1) {
+              effectiveT = step.pathSegment ? step.pathSegment.to : lastReachedPathEnd;
+            }
           }
           clampedT = Math.max(0, Math.min(1, effectiveT));
         } else {
+          // speed > 1 means animation completes before track ends; clamp at 1
           const rawT  = trackDur > 0 ? elapsed / trackDur : 0;
-          clampedT    = Math.max(0, Math.min(1, rawT * (pa.speed ?? 1)));
+          clampedT    = Math.min(1, rawT * (pa.speed ?? 1));
         }
 
         const cumLengths    = buildCumulativeLengths(pa.points);
@@ -458,18 +496,8 @@ export const createTrackSlice: StateCreator<EditorState, [], [], TrackSlice> = (
           display.scale.set(dbScale * Math.max(usx, usy));
 
           // ── Sequence action ──────────────────────────────────────────────
-          // NOTE: seqAction is already declared above (line ~348); use it directly.
           if (seqAction && seqAction.steps.length > 0) {
-            // Walk the steps and figure out which one we're currently in
-            let seqCursor = 0;
-            let activeAnim: string = seqAction.steps[seqAction.steps.length - 1].animation;
-            for (const step of seqAction.steps) {
-              if (elapsed < seqCursor + step.duration || step === seqAction.steps[seqAction.steps.length - 1]) {
-                activeAnim = step.animation;
-                break;
-              }
-              seqCursor += step.duration;
-            }
+            const activeAnim = findActiveAnimation(seqAction.steps, elapsed);
             if (display.animation.lastAnimationName !== activeAnim) {
               display.animation.play(activeAnim, 0);
             }
@@ -649,22 +677,10 @@ export const createTrackSlice: StateCreator<EditorState, [], [], TrackSlice> = (
     if (!incomingHasTravel) {
       const track = get().tracks.find((t) => t.id === trackId);
       if (track?.pathAnimation && track.pathAnimation.points.length > 1) {
-        const obj = track.fabricObject as any;
-        if (obj) {
-          // Pin a keyframe at the current playhead so interpolation keeps
-          // the character at the chair position after the path is cleared.
-          get().addKeyframeAtCurrentTime(trackId);
-          get().updateTrack(trackId, {
-            initialState: {
-              left:    obj.left    ?? 0,
-              top:     obj.top     ?? 0,
-              scaleX:  obj.scaleX  ?? 1,
-              scaleY:  obj.scaleY  ?? 1,
-              angle:   obj.angle   ?? 0,
-              opacity: obj.opacity ?? 1,
-            },
-          });
-        }
+        // The prop popup already updated initialState to the current position
+        // before calling commitCharacterSequenceAction, so we just clear path.
+        // Don't call addKeyframeAtCurrentTime here — the initialState pin is enough
+        // and avoids creating spurious keyframes that fight with the sequence.
       }
     }
 
@@ -713,7 +729,7 @@ export const createTrackSlice: StateCreator<EditorState, [], [], TrackSlice> = (
           }
         } else {
           const drift = Math.abs(mediaElement.currentTime - targetFileTime);
-          if (drift > 0.35) {
+          if (drift > 0.1) {
             mediaElement.currentTime = targetFileTime;
           }
         }
