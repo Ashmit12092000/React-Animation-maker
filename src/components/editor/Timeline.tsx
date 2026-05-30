@@ -405,11 +405,13 @@ export function Timeline() {
 
   return (
     <div
-      className="flex flex-col relative select-none"
+      className="flex flex-col relative select-none flex-shrink-0"
       style={{
         background: "linear-gradient(180deg, #0f1117 0%, #0a0d14 100%)",
         borderTop: "1px solid rgba(255,255,255,0.07)",
-        minHeight: 200,
+        height: 260,
+        minHeight: 260,
+        maxHeight: 260,
       }}
     >
       <div
@@ -628,7 +630,7 @@ export function Timeline() {
         </div>
       </div>
 
-      <div className="flex flex-1 overflow-hidden" style={{ minHeight: 120 }}>
+      <div className="flex flex-1 overflow-hidden" style={{ minHeight: 0 }}>
         <div
           className="w-48 flex-shrink-0 flex flex-col overflow-y-auto track-label"
           style={{ borderRight: "1px solid rgba(255,255,255,0.06)" }}

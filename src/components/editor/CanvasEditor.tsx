@@ -8,6 +8,10 @@ import {
   IText,
   FabricImage,
   ActiveSelection,
+  Ellipse,
+  Triangle,
+  Polygon,
+  Path,
 } from "fabric";
 import * as PIXI from "pixi.js";
 import { useEditorStore, type Asset } from "@/stores/editorStore";
@@ -149,79 +153,6 @@ export function CanvasEditor() {
     };
 
     // --- Event Listeners ---
-
-    // ── Real-time eraser via raw pointer events on the upper canvas ───────────
-    // We bypass Fabric's drawing mode entirely for erasing, so no path artifacts.
-    let eraserActive = false;
-    let lastEraserX = 0;
-    let lastEraserY = 0;
-
-    const getCanvasPos = (e: PointerEvent) => {
-      const rect = (canvas as any).upperCanvasEl
-        ? (canvas as any).upperCanvasEl.getBoundingClientRect()
-        : (canvasRef.current as HTMLCanvasElement).getBoundingClientRect();
-      const scaleX = ((canvas as any).width || 960) / rect.width;
-      const scaleY = ((canvas as any).height || 540) / rect.height;
-      return {
-        x: (e.clientX - rect.left) * scaleX,
-        y: (e.clientY - rect.top)  * scaleY,
-      };
-    };
-
-    const eraserPointerDown = (e: PointerEvent) => {
-      const store = useEditorStore.getState();
-      if (!store.drawingEnabled || !store.eraserEnabled) return;
-      eraserActive = true;
-      const pos = getCanvasPos(e);
-      lastEraserX = pos.x;
-      lastEraserY = pos.y;
-      // Dot for click with no drag
-      const lowerEl = (canvas as any).lowerCanvasEl as HTMLCanvasElement | undefined;
-      if (lowerEl) {
-        const ctx = lowerEl.getContext("2d")!;
-        ctx.save();
-        ctx.globalCompositeOperation = "destination-out";
-        ctx.fillStyle = "rgba(0,0,0,1)";
-        ctx.beginPath();
-        ctx.arc(pos.x, pos.y, store.eraserSize / 2, 0, Math.PI * 2);
-        ctx.fill();
-        ctx.restore();
-      }
-    };
-
-    const eraserPointerMove = (e: PointerEvent) => {
-      if (!eraserActive) return;
-      const store = useEditorStore.getState();
-      if (!store.drawingEnabled || !store.eraserEnabled) { eraserActive = false; return; }
-      const pos = getCanvasPos(e);
-      const lowerEl = (canvas as any).lowerCanvasEl as HTMLCanvasElement | undefined;
-      if (lowerEl) {
-        const ctx = lowerEl.getContext("2d")!;
-        ctx.save();
-        ctx.globalCompositeOperation = "destination-out";
-        ctx.strokeStyle = "rgba(0,0,0,1)";
-        ctx.lineWidth = store.eraserSize;
-        ctx.lineCap = "round";
-        ctx.lineJoin = "round";
-        ctx.beginPath();
-        ctx.moveTo(lastEraserX, lastEraserY);
-        ctx.lineTo(pos.x, pos.y);
-        ctx.stroke();
-        ctx.restore();
-      }
-      lastEraserX = pos.x;
-      lastEraserY = pos.y;
-    };
-
-    const eraserPointerUp = () => { eraserActive = false; };
-
-    const upperEl: HTMLElement | undefined = (canvas as any).upperCanvasEl;
-    if (upperEl) {
-      upperEl.addEventListener("pointerdown", eraserPointerDown);
-      upperEl.addEventListener("pointermove", eraserPointerMove);
-      upperEl.addEventListener("pointerup",   eraserPointerUp);
-      upperEl.addEventListener("pointerleave",eraserPointerUp);
-    }
 
     // 1. Mouse Down: Handle Context Menu & Selection
     canvas.on("mouse:down", (opt) => {
@@ -409,9 +340,11 @@ export function CanvasEditor() {
       const store = useEditorStore.getState();
       if (!store.drawingEnabled) return;
 
-      // ── Eraser mode: handled via raw pointer events, not path:created ───────
+      // ── Eraser mode: EraserBrush handles erasing internally on the path objects.
+      // The "path" emitted here is the eraser stroke itself — we don't want to add
+      // it as a drawing track. Fabric's EraserBrush has already applied clip masks.
       if (store.eraserEnabled) {
-        canvas.remove(path); // discard any stray path if it somehow got created
+        // Don't add to timeline — eraser strokes are not drawable objects
         return;
       }
 
@@ -489,38 +422,81 @@ export function CanvasEditor() {
     });
 
     return () => {
-      if (upperEl) {
-        upperEl.removeEventListener("pointerdown", eraserPointerDown);
-        upperEl.removeEventListener("pointermove", eraserPointerMove);
-        upperEl.removeEventListener("pointerup",   eraserPointerUp);
-        upperEl.removeEventListener("pointerleave",eraserPointerUp);
-      }
       canvas.dispose();
       setCanvas(null);
     };
   }, [setCanvas, setSelectedObject]);
 
+  // ── Helper: build a circular SVG cursor for the eraser ──────────────────
+  const makeEraserCursor = (size: number) => {
+    const r = Math.max(4, Math.round(size / 2));
+    const dim = r * 2 + 4; // +4px padding so the ring isn't clipped
+    const cx = r + 2;
+    const svg = `<svg xmlns='http://www.w3.org/2000/svg' width='${dim}' height='${dim}'><circle cx='${cx}' cy='${cx}' r='${r}' fill='rgba(255,255,255,0.15)' stroke='white' stroke-width='1.5'/><line x1='${cx}' y1='${cx - r + 3}' x2='${cx}' y2='${cx + r - 3}' stroke='white' stroke-width='1'/><line x1='${cx - r + 3}' y1='${cx}' x2='${cx + r - 3}' y2='${cx}' stroke='white' stroke-width='1'/></svg>`;
+    return `url("data:image/svg+xml;utf8,${encodeURIComponent(svg)}") ${cx} ${cx}, crosshair`;
+  };
+
   useEffect(() => {
     const canvas = fabricRef.current;
     if (!canvas) return;
 
-    // When eraser is active, disable Fabric's drawing mode entirely so our
-    // raw pointerdown/move/up listeners on upperCanvasEl work unobstructed.
-    if (eraserEnabled && drawingEnabled) {
-      canvas.isDrawingMode = false;
+    const upperEl = (canvas as any).upperCanvasEl as HTMLElement | undefined;
+
+    // ── ERASER MODE ────────────────────────────────────────────────────────
+    if (drawingEnabled && eraserEnabled) {
+      // Use Fabric's built-in EraserBrush — it erases at the object/path level
+      // so strokes survive the render loop (destination-out on lowerCanvasEl doesn't).
+      try {
+        const EraserBrush = (fabric as any).EraserBrush;
+        if (EraserBrush) {
+          const eraser = new EraserBrush(canvas);
+          eraser.width = eraserSize;
+          canvas.freeDrawingBrush = eraser;
+        } else {
+          // Fallback: use PencilBrush with canvas background color to simulate erasing
+          const pencil = new fabric.PencilBrush(canvas);
+          pencil.color = "#1a1a2e"; // match canvas background
+          pencil.width = eraserSize;
+          canvas.freeDrawingBrush = pencil;
+        }
+      } catch {
+        // If EraserBrush fails, fallback gracefully
+        const pencil = new fabric.PencilBrush(canvas);
+        pencil.color = "#1a1a2e";
+        pencil.width = eraserSize;
+        canvas.freeDrawingBrush = pencil;
+      }
+      canvas.isDrawingMode = true;
       canvas.selection = false;
+
+      // Show eraser cursor
+      if (upperEl) {
+        upperEl.style.cursor = makeEraserCursor(eraserSize);
+      }
       return;
     }
 
-    canvas.isDrawingMode = drawingEnabled;
-    canvas.selection = !drawingEnabled;
-
+    // ── DRAWING MODE ───────────────────────────────────────────────────────
     if (drawingEnabled && !eraserEnabled) {
-      if (!canvas.freeDrawingBrush) {
-        canvas.freeDrawingBrush = new fabric.PencilBrush(canvas);
+      canvas.isDrawingMode = true;
+      canvas.selection = false;
+      const pencil = new fabric.PencilBrush(canvas);
+      pencil.color = drawingColor;
+      pencil.width = drawingBrushSize;
+      canvas.freeDrawingBrush = pencil;
+
+      // Show pencil crosshair cursor
+      if (upperEl) {
+        upperEl.style.cursor = "crosshair";
       }
-      canvas.freeDrawingBrush.color = drawingColor;
-      canvas.freeDrawingBrush.width = drawingBrushSize;
+      return;
+    }
+
+    // ── DEFAULT (no drawing) ───────────────────────────────────────────────
+    canvas.isDrawingMode = false;
+    canvas.selection = true;
+    if (upperEl) {
+      upperEl.style.cursor = "";
     }
   }, [drawingEnabled, drawingColor, drawingBrushSize, eraserEnabled, eraserSize]);
 
@@ -638,24 +614,103 @@ export function CanvasEditor() {
           };
           img.src = asset.src!;
         } else {
+          // ── Full shape library ────────────────────────────────────────────
+          const cx = baseLeft + 80;
+          const cy = baseTop + 80;
+          const color = asset.color || "#4ecdc4";
           let obj: FabricObject;
-          if (asset.name === "Circle") {
-            obj = new Circle({
-              left: baseLeft + 50,
-              top: baseTop + 50,
-              radius: 40,
-              fill: asset.color,
+
+          const makePolygon = (sides: number, radius: number) => {
+            const pts = Array.from({ length: sides }, (_, i) => {
+              const angle = (i * 2 * Math.PI) / sides - Math.PI / 2;
+              return { x: cx + radius * Math.cos(angle), y: cy + radius * Math.sin(angle) };
             });
-          } else {
-            obj = new Rect({
-              left: baseLeft + 50,
-              top: baseTop + 50,
-              width: 60,
-              height: 60,
-              fill: asset.color,
-              rx: asset.name === "Star" ? 0 : 5,
-              ry: asset.name === "Star" ? 0 : 5,
-            });
+            return new Polygon(pts, { fill: color, left: cx - radius, top: cy - radius });
+          };
+
+          const makeStar = (points: number, outerR: number, innerR: number) => {
+            const pts: { x: number; y: number }[] = [];
+            for (let i = 0; i < points * 2; i++) {
+              const angle = (i * Math.PI) / points - Math.PI / 2;
+              const r = i % 2 === 0 ? outerR : innerR;
+              pts.push({ x: cx + r * Math.cos(angle), y: cy + r * Math.sin(angle) });
+            }
+            return new Polygon(pts, { fill: color, left: cx - outerR, top: cy - outerR });
+          };
+
+          switch (asset.name) {
+            case "Circle":
+              obj = new Circle({ left: cx - 50, top: cy - 50, radius: 50, fill: color });
+              break;
+            case "Square":
+              obj = new Rect({ left: cx - 50, top: cy - 50, width: 100, height: 100, fill: color, rx: 4, ry: 4 });
+              break;
+            case "Rectangle":
+              obj = new Rect({ left: cx - 70, top: cy - 40, width: 140, height: 80, fill: color, rx: 4, ry: 4 });
+              break;
+            case "Triangle":
+              obj = new Triangle({ left: cx - 55, top: cy - 50, width: 110, height: 100, fill: color });
+              break;
+            case "Ellipse":
+              obj = new Ellipse({ left: cx - 70, top: cy - 40, rx: 70, ry: 40, fill: color });
+              break;
+            case "Pentagon":
+              obj = makePolygon(5, 55);
+              break;
+            case "Hexagon":
+              obj = makePolygon(6, 55);
+              break;
+            case "Octagon":
+              obj = makePolygon(8, 55);
+              break;
+            case "Star":
+              obj = makeStar(5, 55, 22);
+              break;
+            case "Star6":
+              obj = makeStar(6, 55, 27);
+              break;
+            case "Arrow": {
+              // Right-pointing arrow as SVG path
+              const aw = 110, ah = 80, hw = 55, hh = 35, tw = 60, th = 28;
+              const ax = cx - aw / 2, ay = cy - ah / 2;
+              obj = new Path(
+                `M ${ax} ${ay + (ah - th) / 2}` +
+                `L ${ax + tw} ${ay + (ah - th) / 2}` +
+                `L ${ax + tw} ${ay}` +
+                `L ${ax + aw} ${ay + ah / 2}` +
+                `L ${ax + tw} ${ay + ah}` +
+                `L ${ax + tw} ${ay + (ah + th) / 2}` +
+                `L ${ax} ${ay + (ah + th) / 2} Z`,
+                { fill: color }
+              );
+              break;
+            }
+            case "Heart": {
+              // Heart shape as SVG path centered at cx,cy
+              obj = new Path(
+                `M ${cx} ${cy + 30}` +
+                `C ${cx - 60} ${cy - 10}, ${cx - 80} ${cy - 55}, ${cx} ${cy - 30}` +
+                `C ${cx + 80} ${cy - 55}, ${cx + 60} ${cy - 10}, ${cx} ${cy + 30} Z`,
+                { fill: color }
+              );
+              break;
+            }
+            case "Diamond":
+              obj = new Polygon(
+                [{ x: cx, y: cy - 60 }, { x: cx + 50, y: cy }, { x: cx, y: cy + 60 }, { x: cx - 50, y: cy }],
+                { fill: color, left: cx - 50, top: cy - 60 }
+              );
+              break;
+            case "Line":
+              obj = new fabric.Line([cx - 60, cy, cx + 60, cy], {
+                stroke: color,
+                strokeWidth: 6,
+                fill: color,
+                strokeLineCap: "round",
+              });
+              break;
+            default:
+              obj = new Rect({ left: cx - 50, top: cy - 50, width: 100, height: 100, fill: color, rx: 4, ry: 4 });
           }
           addObjectToCanvas(obj, id, asset);
         }
@@ -1003,10 +1058,12 @@ export function CanvasEditor() {
     (window as any).__setBackground = setBackground;
     (window as any).__addTextToCanvas = addTextToCanvas;
     (window as any).__removeBackground = removeBackground;
+    (window as any).__addShapeToCanvas = addAssetToCanvas;
     return () => {
       delete (window as any).__setBackground;
       delete (window as any).__addTextToCanvas;
       delete (window as any).__removeBackground;
+      delete (window as any).__addShapeToCanvas;
     };
   }, [setBackground, addTextToCanvas, removeBackground]);
 

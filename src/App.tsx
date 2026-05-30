@@ -14,7 +14,7 @@ const App = () => (
       <Toolbar />
       <div className="flex-1 flex overflow-hidden">
         <AssetPanel />
-        <div className="flex-1 flex flex-col overflow-hidden">
+        <div className="flex-1 flex flex-col overflow-hidden min-h-0">
           <CanvasEditor />
           <Timeline />
         </div>

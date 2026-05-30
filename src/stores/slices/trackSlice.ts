@@ -41,6 +41,9 @@ export interface TrackSlice {
   setCharacterAnimation: (trackId: string, animName: string) => void;
   commitCharacterPathAction: (trackId: string, travelAnim: string, arrivalBehavior: "keep" | "idle") => void;
   commitCharacterSequenceAction: (trackId: string, steps: import("../../types").SequenceStep[]) => void;
+
+  // Clear everything
+  clearCanvas: () => void;
 }
 
 export const createTrackSlice: StateCreator<EditorState, [], [], TrackSlice> = (set, get) => ({
@@ -97,6 +100,57 @@ export const createTrackSlice: StateCreator<EditorState, [], [], TrackSlice> = (
         selectedObject: state.selectedObjectId === id ? null : state.selectedObject,
         selectedTrackId: state.selectedTrackId === id ? null : state.selectedTrackId,
       };
+    });
+  },
+
+  clearCanvas: () => {
+    const { tracks, canvas, saveCheckpoint } = get();
+    saveCheckpoint();
+
+    // Stop & clean up every track's media/fabric object
+    tracks.forEach((track) => {
+      // Pause & release audio
+      if (track.audioElement) {
+        track.audioElement.pause();
+        track.audioElement.src = "";
+      }
+      // Pause & release video DOM element
+      if (track.type === "video" && track.fabricObject) {
+        const videoEl = (track.fabricObject as any)._element as HTMLVideoElement | undefined;
+        if (videoEl) {
+          videoEl.pause();
+          videoEl.src = "";
+          videoEl.load();
+          if (videoEl.parentNode) videoEl.parentNode.removeChild(videoEl);
+        }
+      }
+      // Remove DragonBones armature display from PIXI stage
+      if (track.fabricObject) {
+        const display = (track.fabricObject as any).armatureDisplay;
+        if (display) {
+          try { display.dispose(); } catch (_) {}
+        }
+      }
+      // Remove fabric object from canvas
+      if (track.fabricObject && canvas) {
+        canvas.remove(track.fabricObject);
+      }
+    });
+
+    // Clear any remaining objects on the fabric canvas (background, orphans)
+    if (canvas) {
+      canvas.getObjects().slice().forEach((obj) => canvas.remove(obj));
+      canvas.renderAll();
+    }
+
+    set({
+      tracks: [],
+      selectedObjectId: null,
+      selectedObject: null,
+      selectedTrackId: null,
+      selectedKeyframe: null,
+      currentTime: 0,
+      isPlaying: false,
     });
   },
 

@@ -21,6 +21,7 @@ import {
   ChevronRight,
   ChevronLeft,
   Pencil,
+  Eraser,
 } from "lucide-react"; // Added/Renamed icons for clarity
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -73,6 +74,130 @@ const characterGroups: CharacterGroup[] = [
 
 // Flat list for drag operations (used in drag handler)
 const characterAssets: Asset[] = characterGroups.flatMap(g => g.assets);
+
+// ── Shape definitions ─────────────────────────────────────────────────────
+const SHAPE_GROUPS = [
+  {
+    label: "Basic",
+    shapes: [
+      { name: "Rectangle", icon: "▬", viewBox: "0 0 56 40", path: <rect x="2" y="2" width="52" height="36" rx="3" /> },
+      { name: "Square",    icon: "■", viewBox: "0 0 44 44", path: <rect x="2" y="2" width="40" height="40" rx="3" /> },
+      { name: "Circle",    icon: "●", viewBox: "0 0 44 44", path: <circle cx="22" cy="22" r="20" /> },
+      { name: "Ellipse",   icon: "⬬", viewBox: "0 0 56 36", path: <ellipse cx="28" cy="18" rx="26" ry="16" /> },
+      { name: "Triangle",  icon: "▲", viewBox: "0 0 44 40", path: <polygon points="22,2 42,38 2,38" /> },
+      { name: "Line",      icon: "─", viewBox: "0 0 44 20", path: <line x1="2" y1="10" x2="42" y2="10" strokeWidth="4" strokeLinecap="round" /> },
+    ],
+  },
+  {
+    label: "Polygons",
+    shapes: [
+      { name: "Diamond",  icon: "◆", viewBox: "0 0 44 56", path: <polygon points="22,2 42,28 22,54 2,28" /> },
+      { name: "Pentagon", icon: "⬠", viewBox: "0 0 44 44", path: <polygon points="22,2 42,16 34,40 10,40 2,16" /> },
+      { name: "Hexagon",  icon: "⬡", viewBox: "0 0 44 44", path: <polygon points="22,2 40,12 40,32 22,42 4,32 4,12" /> },
+      { name: "Octagon",  icon: "⯃", viewBox: "0 0 44 44", path: <polygon points="14,2 30,2 42,14 42,30 30,42 14,42 2,30 2,14" /> },
+    ],
+  },
+  {
+    label: "Stars & Special",
+    shapes: [
+      { name: "Star",   icon: "★", viewBox: "0 0 44 44", path: <polygon points="22,2 27,17 43,17 30,26 35,42 22,33 9,42 14,26 1,17 17,17" /> },
+      { name: "Star6",  icon: "✶", viewBox: "0 0 44 44", path: <polygon points="22,2 26,16 39,8 32,20 44,22 32,24 39,36 26,28 22,42 18,28 5,36 12,24 0,22 12,20 5,8 18,16" /> },
+      { name: "Heart",  icon: "♥", viewBox: "0 0 44 40", path: <path d="M22,36 C22,36 2,22 2,12 C2,6 7,2 13,2 C17,2 21,5 22,7 C23,5 27,2 31,2 C37,2 42,6 42,12 C42,22 22,36 22,36Z" /> },
+      { name: "Arrow",  icon: "➤", viewBox: "0 0 56 36", path: <polygon points="2,10 34,10 34,2 54,18 34,34 34,26 2,26" /> },
+    ],
+  },
+];
+
+// ── ShapesPanel inner component ───────────────────────────────────────────
+function ShapesPanel() {
+  const [shapeColor, setShapeColor] = useState("#4ecdc4");
+  const addAsset = useEditorStore((s: any) => s.addUploadedAsset);
+  const canvas = useEditorStore((s: any) => s.canvas);
+
+  const PRESET_COLORS = [
+    "#ef4444","#f97316","#eab308","#22c55e",
+    "#06b6d4","#3b82f6","#8b5cf6","#ec4899",
+    "#ffffff","#94a3b8","#374151","#000000",
+  ];
+
+  const handleAddShape = (shapeName: string) => {
+    const asset: Asset = {
+      id: `shape-${shapeName.toLowerCase()}-${Date.now()}`,
+      name: shapeName,
+      type: "item",
+      color: shapeColor,
+      icon: "",
+    };
+    // Dispatch via the global addAssetToCanvas exposed on window
+    if ((window as any).__addShapeToCanvas) {
+      (window as any).__addShapeToCanvas(asset);
+    }
+  };
+
+  return (
+    <div className="space-y-4">
+      {/* Color picker */}
+      <div className="space-y-2">
+        <p className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">Shape Color</p>
+        <div className="grid grid-cols-6 gap-1.5">
+          {PRESET_COLORS.map((c) => (
+            <button
+              key={c}
+              onClick={() => setShapeColor(c)}
+              className="w-7 h-7 rounded-md border-2 transition-transform hover:scale-110"
+              style={{
+                backgroundColor: c,
+                borderColor: shapeColor === c ? "white" : "transparent",
+                boxShadow: shapeColor === c ? `0 0 0 1px rgba(255,255,255,0.3)` : undefined,
+              }}
+            />
+          ))}
+          {/* Custom color */}
+          <div className="relative w-7 h-7 rounded-md overflow-hidden border-2 transition-transform hover:scale-110"
+            style={{ borderColor: PRESET_COLORS.includes(shapeColor) ? "transparent" : "white", background: "conic-gradient(red, yellow, lime, cyan, blue, magenta, red)" }}>
+            <input
+              type="color"
+              value={shapeColor}
+              onChange={(e) => setShapeColor(e.target.value)}
+              className="opacity-0 absolute inset-0 w-full h-full cursor-pointer"
+            />
+          </div>
+        </div>
+        {/* Current color preview */}
+        <div className="flex items-center gap-2">
+          <div className="w-6 h-6 rounded border border-panel-border flex-shrink-0" style={{ backgroundColor: shapeColor }} />
+          <span className="text-xs font-mono text-muted-foreground">{shapeColor}</span>
+        </div>
+      </div>
+
+      {/* Shape groups */}
+      {SHAPE_GROUPS.map((group) => (
+        <div key={group.label}>
+          <p className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground mb-2">{group.label}</p>
+          <div className="grid grid-cols-3 gap-2">
+            {group.shapes.map((shape) => (
+              <button
+                key={shape.name}
+                onClick={() => handleAddShape(shape.name)}
+                title={shape.name}
+                className="group flex flex-col items-center gap-1.5 p-2 rounded-lg bg-secondary/60 border border-panel-border hover:border-primary/50 hover:bg-secondary transition-all active:scale-95"
+              >
+                <svg
+                  viewBox={shape.viewBox}
+                  className="w-8 h-8"
+                  style={{ fill: shape.name === "Line" ? "none" : shapeColor, stroke: shape.name === "Line" ? shapeColor : "none", overflow: "visible" }}
+                >
+                  {shape.path}
+                </svg>
+                <span className="text-[9px] text-muted-foreground group-hover:text-foreground transition-colors leading-none">{shape.name}</span>
+              </button>
+            ))}
+          </div>
+        </div>
+      ))}
+    </div>
+  );
+}
 
 
 export function AssetPanel() {
@@ -347,7 +472,7 @@ export function AssetPanel() {
                       : "text-muted-foreground hover:text-foreground",
                   )}
                 >
-                  Items
+                  Shapes
                 </button>
                 <button
                   onClick={() => setActiveAssetType("background")}
@@ -363,53 +488,9 @@ export function AssetPanel() {
               </div>
             </div>
 
-            <div className="flex-1 overflow-y-auto p-4 custom-scrollbar">
+            <div className="flex-1 overflow-y-auto p-3 custom-scrollbar">
               {activeAssetType === "item" ? (
-                <div className="grid grid-cols-2 gap-3">
-                  {/* Items Grid */}
-                  {[...filteredAssets, ...uploadedAssets.filter(a => a.type === "item")].map((asset) => (
-                    <div
-                      key={asset.id}
-                      draggable
-                      onDragStart={(e) => handleDragStart(e, asset)}
-                      className="group relative aspect-square rounded-xl bg-secondary border border-panel-border hover:border-primary/50 cursor-grab active:cursor-grabbing overflow-hidden transition-all"
-                    >
-                      {asset.src ? (
-                        <img
-                          src={asset.src}
-                          alt={asset.name}
-                          className="w-full h-full object-cover"
-                        />
-                      ) : (
-                        <div
-                          className="w-full h-full flex items-center justify-center text-3xl"
-                          style={{ backgroundColor: asset.color + "33" }}
-                        >
-                          {asset.icon}
-                        </div>
-                      )}
-                      <div className="absolute inset-x-0 bottom-0 bg-black/60 p-1 translate-y-full group-hover:translate-y-0 transition-transform">
-                        <p className="text-[10px] text-white text-center truncate">
-                          {asset.name}
-                        </p>
-                      </div>
-                    </div>
-                  ))}
-
-                  {/* Quick Upload Button in Grid */}
-                  <label className="cursor-pointer aspect-square rounded-xl border-2 border-dashed border-panel-border hover:border-primary/50 flex flex-col items-center justify-center bg-secondary/20 hover:bg-secondary/40 transition-all">
-                    <Upload className="w-6 h-6 text-muted-foreground mb-2" />
-                    <span className="text-[10px] text-muted-foreground">
-                      Upload
-                    </span>
-                    <input
-                      type="file"
-                      accept=".png,.jpg,.jpeg"
-                      onChange={(e) => handleMediaUpload(e, "image")}
-                      className="hidden"
-                    />
-                  </label>
-                </div>
+                <ShapesPanel />
               ) : (
                 <div className="space-y-4">
                   {/* Backgrounds Logic */}
@@ -422,7 +503,6 @@ export function AssetPanel() {
                     Remove Background
                   </Button>
                   <div className="grid grid-cols-3 gap-2">
-                    {/* Color Assets */}
                     {filteredAssets.map((asset) => (
                       <button
                         key={asset.id}
@@ -438,6 +518,31 @@ export function AssetPanel() {
                         onChange={(e) => handleSetBackground(e.target.value)}
                         className="opacity-0 absolute inset-0 w-full h-full cursor-pointer"
                       />
+                    </div>
+                  </div>
+
+                  {/* Upload image */}
+                  <div className="pt-2 border-t border-panel-border">
+                    <p className="text-xs text-muted-foreground mb-2">Uploaded Images</p>
+                    <div className="grid grid-cols-2 gap-2">
+                      {uploadedAssets.filter(a => a.type === "item").map((asset) => (
+                        <div
+                          key={asset.id}
+                          draggable
+                          onDragStart={(e) => handleDragStart(e, asset)}
+                          className="group relative aspect-square rounded-xl bg-secondary border border-panel-border hover:border-primary/50 cursor-grab active:cursor-grabbing overflow-hidden transition-all"
+                        >
+                          <img src={asset.src} alt={asset.name} className="w-full h-full object-cover" />
+                          <div className="absolute inset-x-0 bottom-0 bg-black/60 p-1 translate-y-full group-hover:translate-y-0 transition-transform">
+                            <p className="text-[10px] text-white text-center truncate">{asset.name}</p>
+                          </div>
+                        </div>
+                      ))}
+                      <label className="cursor-pointer aspect-square rounded-xl border-2 border-dashed border-panel-border hover:border-primary/50 flex flex-col items-center justify-center bg-secondary/20 hover:bg-secondary/40 transition-all">
+                        <Upload className="w-6 h-6 text-muted-foreground mb-2" />
+                        <span className="text-[10px] text-muted-foreground">Upload</span>
+                        <input type="file" accept=".png,.jpg,.jpeg" onChange={(e) => handleMediaUpload(e, "image")} className="hidden" />
+                      </label>
                     </div>
                   </div>
                 </div>
@@ -610,119 +715,165 @@ export function AssetPanel() {
             <div className="p-4 border-b border-panel-border">
               <h2 className="font-semibold text-foreground">Draw</h2>
               <p className="text-xs text-muted-foreground mt-1">
-                Freehand pencil strokes
+                Freehand pencil &amp; eraser
               </p>
             </div>
 
-            <div className="flex-1 overflow-y-auto p-4 space-y-6 custom-scrollbar">
-              {/* Enable / Disable */}
+            <div className="flex-1 overflow-y-auto p-4 space-y-5 custom-scrollbar">
+
+              {/* ── Tool toggle: Pen / Eraser / Off ─────────────────────────── */}
               <div className="space-y-2">
-                <Label className="text-xs">Tool</Label>
-                <Button
-                  size="sm"
-                  variant={drawingEnabled ? "default" : "outline"}
-                  onClick={() => {
-                    setDrawingEnabled(!drawingEnabled);
-                    if (drawingEnabled) setEraserEnabled(false);
-                  }}
-                  className="w-full"
-                >
-                  {drawingEnabled ? "Drawing Enabled" : "Enable Drawing"}
-                </Button>
+                <Label className="text-xs text-muted-foreground uppercase tracking-wider">Active Tool</Label>
+                <div className="grid grid-cols-3 gap-1 p-1 bg-secondary rounded-lg">
+                  {/* Off */}
+                  <button
+                    onClick={() => { setDrawingEnabled(false); setEraserEnabled(false); }}
+                    className={cn(
+                      "flex flex-col items-center gap-1 py-2 px-1 rounded-md text-xs transition-all",
+                      !drawingEnabled
+                        ? "bg-background text-foreground shadow-sm font-medium"
+                        : "text-muted-foreground hover:text-foreground"
+                    )}
+                  >
+                    <MousePointer2 className="h-4 w-4" />
+                    <span>Select</span>
+                  </button>
+                  {/* Pen */}
+                  <button
+                    onClick={() => { setDrawingEnabled(true); setEraserEnabled(false); }}
+                    className={cn(
+                      "flex flex-col items-center gap-1 py-2 px-1 rounded-md text-xs transition-all",
+                      drawingEnabled && !eraserEnabled
+                        ? "bg-primary text-primary-foreground shadow-sm font-medium"
+                        : "text-muted-foreground hover:text-foreground"
+                    )}
+                  >
+                    <Pencil className="h-4 w-4" />
+                    <span>Pen</span>
+                  </button>
+                  {/* Eraser */}
+                  <button
+                    onClick={() => { setDrawingEnabled(true); setEraserEnabled(true); }}
+                    className={cn(
+                      "flex flex-col items-center gap-1 py-2 px-1 rounded-md text-xs transition-all",
+                      drawingEnabled && eraserEnabled
+                        ? "bg-destructive text-destructive-foreground shadow-sm font-medium"
+                        : "text-muted-foreground hover:text-foreground"
+                    )}
+                  >
+                    <Eraser className="h-4 w-4" />
+                    <span>Eraser</span>
+                  </button>
+                </div>
+                {/* Status hint */}
+                <p className="text-[10px] text-center text-muted-foreground">
+                  {!drawingEnabled && "Click Pen or Eraser to start drawing"}
+                  {drawingEnabled && !eraserEnabled && "🖊 Draw on the canvas"}
+                  {drawingEnabled && eraserEnabled && "⬜ Click & drag to erase strokes"}
+                </p>
               </div>
 
-              {/* Brush Size Slider */}
-              <div className="space-y-3">
-                <div className="flex items-center justify-between">
-                  <Label className="text-xs">Brush Size</Label>
-                  <span className="text-xs text-muted-foreground font-mono">{drawingBrushSize}px</span>
-                </div>
-                <input
-                  type="range"
-                  min={1}
-                  max={60}
-                  value={drawingBrushSize}
-                  onChange={(e) => setDrawingBrushSize(Number(e.target.value))}
-                  className="w-full accent-primary"
-                  style={{ cursor: "pointer" }}
-                />
-                <div className="flex justify-between text-xs text-muted-foreground">
-                  <span>1px</span>
-                  <span>60px</span>
-                </div>
-              </div>
-
-              {/* Color */}
-              <div className="space-y-2">
-                <Label className="text-xs">Color</Label>
-                <div className="grid grid-cols-4 gap-2">
-                  {drawColors.map((color) => (
-                    <button
-                      key={color}
-                      onClick={() => setDrawingColor(color)}
-                      className={cn(
-                        "h-8 w-8 rounded border",
-                        drawingColor === color
-                          ? "border-primary ring-2 ring-primary/40"
-                          : "border-panel-border",
-                      )}
-                      style={{ backgroundColor: color }}
-                      aria-label={`Set draw color ${color}`}
-                    />
-                  ))}
-                </div>
-                <div className="flex items-center gap-2">
-                  <div className="w-9 h-9 rounded border border-panel-border overflow-hidden shrink-0 relative">
-                    <input
-                      type="color"
-                      value={drawingColor}
-                      onChange={(e) => setDrawingColor(e.target.value)}
-                      className="absolute w-[150%] h-[150%] -top-1/4 -left-1/4 cursor-pointer"
+              {/* ── Brush size — only when pen is active ────────────────────── */}
+              {drawingEnabled && !eraserEnabled && (
+                <div className="space-y-3">
+                  <div className="flex items-center justify-between">
+                    <Label className="text-xs">Brush Size</Label>
+                    <span className="text-xs text-muted-foreground font-mono">{drawingBrushSize}px</span>
+                  </div>
+                  {/* Live size preview */}
+                  <div className="flex items-center justify-center h-10 bg-secondary rounded-md">
+                    <div
+                      className="rounded-full bg-foreground/80"
+                      style={{ width: Math.min(drawingBrushSize, 36), height: Math.min(drawingBrushSize, 36) }}
                     />
                   </div>
-                  <Input
-                    value={drawingColor}
-                    onChange={(e) => setDrawingColor(e.target.value)}
-                    className="flex-1 bg-secondary text-xs font-mono"
+                  <input
+                    type="range"
+                    min={1}
+                    max={60}
+                    value={drawingBrushSize}
+                    onChange={(e) => setDrawingBrushSize(Number(e.target.value))}
+                    className="w-full accent-primary"
+                    style={{ cursor: "pointer" }}
                   />
-                </div>
-              </div>
-
-              {/* Eraser — only shown when drawing is enabled */}
-              {drawingEnabled && (
-                <div className="space-y-3 border-t border-panel-border pt-4">
-                  <Label className="text-xs">Eraser</Label>
-                  <Button
-                    size="sm"
-                    variant={eraserEnabled ? "default" : "outline"}
-                    onClick={() => setEraserEnabled(!eraserEnabled)}
-                    className="w-full"
-                  >
-                    {eraserEnabled ? "✦ Eraser Active" : "Enable Eraser"}
-                  </Button>
-                  {eraserEnabled && (
-                    <div className="space-y-2">
-                      <div className="flex items-center justify-between">
-                        <Label className="text-xs text-muted-foreground">Eraser Size</Label>
-                        <span className="text-xs text-muted-foreground font-mono">{eraserSize}px</span>
-                      </div>
-                      <input
-                        type="range"
-                        min={4}
-                        max={120}
-                        value={eraserSize}
-                        onChange={(e) => setEraserSize(Number(e.target.value))}
-                        className="w-full accent-destructive"
-                        style={{ cursor: "pointer" }}
-                      />
-                      <div className="flex justify-between text-xs text-muted-foreground">
-                        <span>4px</span>
-                        <span>120px</span>
-                      </div>
-                    </div>
-                  )}
+                  <div className="flex justify-between text-xs text-muted-foreground">
+                    <span>1px</span>
+                    <span>60px</span>
+                  </div>
                 </div>
               )}
+
+              {/* ── Eraser size — only when eraser is active ─────────────────── */}
+              {drawingEnabled && eraserEnabled && (
+                <div className="space-y-3">
+                  <div className="flex items-center justify-between">
+                    <Label className="text-xs">Eraser Size</Label>
+                    <span className="text-xs text-muted-foreground font-mono">{eraserSize}px</span>
+                  </div>
+                  {/* Live eraser preview circle */}
+                  <div className="flex items-center justify-center h-12 bg-secondary rounded-md">
+                    <div
+                      className="rounded-full border-2 border-destructive/70 bg-destructive/10"
+                      style={{
+                        width: Math.min(eraserSize, 44),
+                        height: Math.min(eraserSize, 44),
+                      }}
+                    />
+                  </div>
+                  <input
+                    type="range"
+                    min={4}
+                    max={120}
+                    value={eraserSize}
+                    onChange={(e) => setEraserSize(Number(e.target.value))}
+                    className="w-full accent-destructive"
+                    style={{ cursor: "pointer" }}
+                  />
+                  <div className="flex justify-between text-xs text-muted-foreground">
+                    <span>4px</span>
+                    <span>120px</span>
+                  </div>
+                </div>
+              )}
+
+              {/* ── Color — only when pen is active ─────────────────────────── */}
+              {drawingEnabled && !eraserEnabled && (
+                <div className="space-y-2">
+                  <Label className="text-xs">Color</Label>
+                  <div className="grid grid-cols-4 gap-2">
+                    {drawColors.map((color) => (
+                      <button
+                        key={color}
+                        onClick={() => setDrawingColor(color)}
+                        className={cn(
+                          "h-8 w-8 rounded border transition-all",
+                          drawingColor === color
+                            ? "border-primary ring-2 ring-primary/40 scale-110"
+                            : "border-panel-border hover:scale-105",
+                        )}
+                        style={{ backgroundColor: color }}
+                        aria-label={`Set draw color ${color}`}
+                      />
+                    ))}
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <div className="w-9 h-9 rounded border border-panel-border overflow-hidden shrink-0 relative">
+                      <input
+                        type="color"
+                        value={drawingColor}
+                        onChange={(e) => setDrawingColor(e.target.value)}
+                        className="absolute w-[150%] h-[150%] -top-1/4 -left-1/4 cursor-pointer"
+                      />
+                    </div>
+                    <Input
+                      value={drawingColor}
+                      onChange={(e) => setDrawingColor(e.target.value)}
+                      className="flex-1 bg-secondary text-xs font-mono"
+                    />
+                  </div>
+                </div>
+              )}
+
             </div>
           </div>
         )}
