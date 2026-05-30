@@ -5,6 +5,23 @@ import { FabricImage } from "fabric";
 import { interpolateProperties } from "../../utils/interpolation";
 import { buildCumulativeLengths, getPositionAtT } from "../../utils/pathAnimation";
 
+// Animations that should loop continuously (playTimes = 0).
+// Everything NOT in this set is a one-shot transition (playTimes = 1) that
+// plays through once and holds its last frame — e.g. sit_down, wave, jump.
+const LOOPING_ANIMS = new Set([
+  "Idle", "idle",
+  "walk", "Walk",
+  "run",  "Run",
+  "sit_idle",
+  "cross_legs",
+  "lay_down",
+  "fall_asleep",
+]);
+
+/** Returns the correct playTimes for display.animation.play() */
+const playTimes = (animName: string) => LOOPING_ANIMS.has(animName) ? 0 : 1;
+
+
 export interface TrackSlice {
   tracks: TrackObject[];
   currentTime: number;
@@ -413,6 +430,11 @@ export const createTrackSlice: StateCreator<EditorState, [], [], TrackSlice> = (
         if (canvas && canvas.contains(track.fabricObject)) {
           canvas.remove(track.fabricObject);
         }
+        // Also hide the PIXI armature so it doesn't linger on the overlay
+        // while the Fabric proxy is off-canvas (e.g. before track start or
+        // after track end, including when playback loops back to t=0).
+        const displayHide = (track.fabricObject as any).armatureDisplay;
+        if (displayHide) displayHide.visible = false;
         return;
       }
 
@@ -420,6 +442,30 @@ export const createTrackSlice: StateCreator<EditorState, [], [], TrackSlice> = (
         canvas.add(track.fabricObject);
         const bg = canvas.getObjects().find((o) => (o as any).customType === "background");
         if (bg) canvas.moveObjectTo(bg, 0);
+        // Re-show the armature and immediately sync its position so there is
+        // no flash of misalignment on the first rendered frame after re-entry.
+        const displayShow = (track.fabricObject as any).armatureDisplay;
+        if (displayShow) {
+          displayShow.visible = true;
+          const dbScale = (track.fabricObject as any).dbScale ?? 1;
+          const isProp  = (track.fabricObject as any).customType === "prop";
+          if (isProp) {
+            const offsetX = (track.fabricObject as any).propOffsetX ?? 0;
+            const offsetY = (track.fabricObject as any).propOffsetY ?? 0;
+            const userScale = Math.max(track.fabricObject.scaleX || 1, track.fabricObject.scaleY || 1);
+            displayShow.x = (track.fabricObject.left || 0) + offsetX * userScale;
+            displayShow.y = (track.fabricObject.top  || 0) + offsetY * userScale;
+            displayShow.scale.set(dbScale * userScale);
+          } else {
+            const charW = (track.fabricObject as any).charW ?? (track.fabricObject.width  || 103);
+            const charH = (track.fabricObject as any).charH ?? (track.fabricObject.height || 300);
+            const usx   = track.fabricObject.scaleX || 1;
+            const usy   = track.fabricObject.scaleY || 1;
+            displayShow.x = (track.fabricObject.left || 0) + (charW * usx) / 2;
+            displayShow.y = (track.fabricObject.top  || 0) +  charH * usy;
+            displayShow.scale.set(dbScale * Math.max(usx, usy));
+          }
+        }
       }
 
       if (track.keyframes.length > 0) {
@@ -470,7 +516,7 @@ export const createTrackSlice: StateCreator<EditorState, [], [], TrackSlice> = (
           const elapsed = Math.max(0, time - track.startTime);
           const activeAnim = findActiveAnimation(standaloneSeq.steps, elapsed);
           if (display.animation.lastAnimationName !== activeAnim) {
-            display.animation.play(activeAnim, 0);
+            display.animation.play(activeAnim, playTimes(activeAnim));
           }
         }
       }
@@ -553,7 +599,7 @@ export const createTrackSlice: StateCreator<EditorState, [], [], TrackSlice> = (
           if (seqAction && seqAction.steps.length > 0) {
             const activeAnim = findActiveAnimation(seqAction.steps, elapsed);
             if (display.animation.lastAnimationName !== activeAnim) {
-              display.animation.play(activeAnim, 0);
+              display.animation.play(activeAnim, playTimes(activeAnim));
             }
           } else if (action) {
             if (clampedT >= 1) {
@@ -562,13 +608,13 @@ export const createTrackSlice: StateCreator<EditorState, [], [], TrackSlice> = (
               // frame when isPlaying has just flipped to false.
               const arrivalAnim = action.arrivalBehavior === "idle" ? "Idle" : action.travelAnim;
               if (display.animation.lastAnimationName !== arrivalAnim) {
-                display.animation.play(arrivalAnim, 0);
+                display.animation.play(arrivalAnim, playTimes(arrivalAnim));
               }
             } else if (isPlaying) {
               // Path in progress → only switch during active playback,
               // not while scrubbing, so pausing doesn't snap the anim.
               if (display.animation.lastAnimationName !== action.travelAnim) {
-                display.animation.play(action.travelAnim, 0);
+                display.animation.play(action.travelAnim, playTimes(action.travelAnim));
               }
             }
           }
@@ -696,7 +742,7 @@ export const createTrackSlice: StateCreator<EditorState, [], [], TrackSlice> = (
     const track = get().tracks.find((t) => t.id === trackId);
     const display = (track?.fabricObject as any)?.armatureDisplay;
     if (display) {
-      display.animation.play(animName, 0);
+      display.animation.play(animName, playTimes(animName));
     }
   },
 

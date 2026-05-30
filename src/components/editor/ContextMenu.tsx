@@ -36,6 +36,7 @@ export function ContextMenu({ x, y, onClose }: ContextMenuProps) {
     duplicateObject,
     rotateImage,
     setAsBackground,
+    detachBackground,
     clipboard,
     splitTrack,
     selectedObjectId,
@@ -62,7 +63,15 @@ export function ContextMenu({ x, y, onClose }: ContextMenuProps) {
   }, [selectedObjectId, duplicateObject, onClose]);
 
   const isLocked = selectedObject?.lockMovementX;
-  const isImage = !!selectedObject && ((selectedObject as any).type === "image" || (selectedObject as any).customType === "image");
+  // Only real bitmap images (Fabric .type === "image") get background options.
+  // Shapes like Square/Circle also have customType "item" but their Fabric
+  // .type is "rect"/"circle" — NOT "image" — so this correctly excludes them.
+  const isImage = !!selectedObject && (
+    (selectedObject as any).type === "image" ||
+    (selectedObject as any).customType === "image" ||
+    (selectedObject as any).customType === "background"
+  );
+  const isCurrentBackground = (selectedObject as any)?.customType === "background";
   const isAudioTrack = selectedObjectType === "audio";
   const canPaste = isAudioTrack ? !!audioClipboard : !!clipboard;
 
@@ -131,23 +140,35 @@ export function ContextMenu({ x, y, onClose }: ContextMenuProps) {
           {isImage && (
             <>
               <div className="h-px bg-gray-700 my-1 mx-2" />
-              <MenuItem
-                icon={<RotateCw className="w-4 h-4" />}
-                label="Rotate 90°"
-                onClick={() => {
-                  rotateImage();
-                  onClose();
-                }}
-              />
-              <MenuItem
-                icon={<Image className="w-4 h-4" />}
-                label="Set as Background"
-                onClick={() => {
-                  setAsBackground();
-                  onClose();
-                }}
-                disabled={(selectedObject as any)?.customType === "background"}
-              />
+              {!isCurrentBackground && (
+                <MenuItem
+                  icon={<RotateCw className="w-4 h-4" />}
+                  label="Rotate 90°"
+                  onClick={() => {
+                    rotateImage();
+                    onClose();
+                  }}
+                />
+              )}
+              {isCurrentBackground ? (
+                <MenuItem
+                  icon={<Image className="w-4 h-4" />}
+                  label="Detach from Background"
+                  onClick={() => {
+                    detachBackground();
+                    onClose();
+                  }}
+                />
+              ) : (
+                <MenuItem
+                  icon={<Image className="w-4 h-4" />}
+                  label="Set as Background"
+                  onClick={() => {
+                    setAsBackground();
+                    onClose();
+                  }}
+                />
+              )}
             </>
           )}
         </>

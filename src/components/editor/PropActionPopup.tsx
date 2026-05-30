@@ -886,10 +886,32 @@ export function PropActionPopup({
           };
         });
 
-        commitCharacterSequenceAction(trackId, steps);
-        updateTrack(trackId, {
-          endTime: track.startTime + totalDur,
-        });
+        // Fix 1: stretch the last stationary hold step to fill the full track
+        // duration so the character stays seated instead of standing after the
+        // hard-coded sit_idle duration expires.
+        const nonHoldDur = steps
+          .slice(0, -1)
+          .reduce((acc: number, s: any) => acc + s.duration, 0);
+        const existingTrackDur = track.endTime - track.startTime;
+        // Use whichever is longer: action total or current track length
+        const targetTotalDur = Math.max(totalDur, existingTrackDur);
+        const stretchedSteps = steps.map((s: any, i: number) =>
+          i === steps.length - 1
+            ? { ...s, duration: Math.max(s.duration, targetTotalDur - nonHoldDur) }
+            : s
+        );
+        const finalDur = stretchedSteps.reduce((acc: number, s: any) => acc + s.duration, 0);
+
+        commitCharacterSequenceAction(trackId, stretchedSteps);
+        const newEndTime = track.startTime + finalDur;
+        updateTrack(trackId, { endTime: newEndTime });
+
+        // Fix 2: extend the prop (chair) track bar to match the character
+        // track so both grow together in the timeline.
+        const propTrackForUpdate = tracks.find((t: any) => t.id === propTrackId);
+        if (propTrackForUpdate && newEndTime > propTrackForUpdate.endTime) {
+          updateTrack(propTrackId, { endTime: newEndTime });
+        }
 
       } else {
         // ── Stationary sequence (cup actions, get_up, sit_down in place) ──
@@ -917,7 +939,13 @@ export function PropActionPopup({
         }
         const steps = stepsToSequence(selectedAction.steps);
         commitCharacterSequenceAction(trackId, steps);
-        updateTrack(trackId, { endTime: track.startTime + totalDur });
+        const statNewEndTime = track.startTime + totalDur;
+        updateTrack(trackId, { endTime: statNewEndTime });
+        // Also extend the prop track bar to match
+        const statPropTrack = tracks.find((t: any) => t.id === propTrackId);
+        if (statPropTrack && statNewEndTime > statPropTrack.endTime) {
+          updateTrack(propTrackId, { endTime: statNewEndTime });
+        }
       }
     });
 

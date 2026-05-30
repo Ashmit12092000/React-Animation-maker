@@ -461,9 +461,13 @@ export function CanvasEditor() {
 
           const matrix = pathObj.calcTransformMatrix();
           const invMatrix = fabric.util.invertTransform(matrix);
+          // Convert canvas point → object-local space
           const localEraser = fabric.util.transformPoint({ x: ex, y: ey }, invMatrix);
-          const lx = localEraser.x, ly = localEraser.y;
-          console.log(`[ERASER] path[${pi}] eraser local=(${lx.toFixed(1)},${ly.toFixed(1)}) rawPath[0]=`, rawPath[0], "rawPath[1]=", rawPath[1]);
+          // Fabric v6 stores raw path commands relative to pathOffset (bbox center),
+          // so we must add pathOffset to align with the raw path coordinate space.
+          const pathOffset = (pathObj as any).pathOffset as { x: number; y: number } | undefined;
+          const lx = localEraser.x + (pathOffset?.x ?? 0);
+          const ly = localEraser.y + (pathOffset?.y ?? 0);
 
           const scaleX = Math.sqrt(matrix[0] ** 2 + matrix[1] ** 2);
           const scaleY = Math.sqrt(matrix[2] ** 2 + matrix[3] ** 2);
@@ -538,9 +542,39 @@ export function CanvasEditor() {
           if (currentSegment.length > 0) keepSegments.push(currentSegment);
           if (!erased) return;
 
+          // The raw path coords are in path-space (relative to pathOffset / bbox center).
+          // To place reconstructed paths correctly on canvas we must transform each point
+          // back through the original object's transform matrix.
+          const transformPoint = (px: number, py: number): [number, number] => {
+            const pt = fabric.util.transformPoint(
+              { x: px - (pathOffset?.x ?? 0), y: py - (pathOffset?.y ?? 0) },
+              matrix
+            );
+            return [pt.x, pt.y];
+          };
+
+          const remapCmd = (cmd: any[]): any[] => {
+            const t = cmd[0];
+            if (t === "M" || t === "L") {
+              const [rx, ry] = transformPoint(cmd[1], cmd[2]);
+              return [t, rx, ry];
+            } else if (t === "Q") {
+              const [c1x, c1y] = transformPoint(cmd[1], cmd[2]);
+              const [ex2, ey2] = transformPoint(cmd[3], cmd[4]);
+              return [t, c1x, c1y, ex2, ey2];
+            } else if (t === "C") {
+              const [c1x, c1y] = transformPoint(cmd[1], cmd[2]);
+              const [c2x, c2y] = transformPoint(cmd[3], cmd[4]);
+              const [ex2, ey2] = transformPoint(cmd[5], cmd[6]);
+              return [t, c1x, c1y, c2x, c2y, ex2, ey2];
+            }
+            return cmd;
+          };
+
           canvas.remove(pathObj);
           keepSegments.filter(seg => seg.length > 1).forEach(seg => {
-            const newPath = new Path(seg as any, {
+            const remappedSeg = seg.map(remapCmd);
+            const newPath = new Path(remappedSeg as any, {
               stroke: pathObj.stroke,
               strokeWidth: pathObj.strokeWidth,
               fill: "",

@@ -34,6 +34,7 @@ export interface CanvasSlice {
   flipObject: (direction: "horizontal" | "vertical") => void;
   rotateImage: () => void;
   setAsBackground: () => void;
+  detachBackground: () => void;
   setImageFilters: (filterKeys: string[]) => void;
   deleteSelected: () => void;
   copyObject: () => void;
@@ -160,27 +161,108 @@ rotateImage: () => {
     const { selectedObject, canvas, selectedObjectId } = get();
     if (!selectedObject || !canvas) return;
 
-    const isImageType = (selectedObject as any).type === "image" || (selectedObject as any).customType === "image";
+    // Guard: only real bitmap images (Fabric type "image") can become the background.
+    // Shapes (rect, circle, etc.) also have customType "item" but their fabric
+    // .type is "rect"/"circle"/etc., NOT "image" — so we check fabric's own type.
+    const isImageType =
+      (selectedObject as any).type === "image" ||
+      (selectedObject as any).customType === "image";
     if (!isImageType) return;
 
-    (selectedObject as any).customType = "background";
-    selectedObject.set({ left: 0, top: 0, selectable: false, evented: false, originX: "left", originY: "top" });
+    // ── Step 1: Demote any existing background back to a regular layer ──────
+    // Real canvas apps (Figma, Canva) only ever have ONE background slot.
+    // When a new background is set, the old one becomes a normal editable
+    // object again — it stays on the canvas, is selectable, and sits just
+    // above the new background in the layer stack.
+    const existingBg = canvas
+      .getObjects()
+      .find((o) => (o as any).customType === "background" && o !== selectedObject);
 
-    // Try to scale image to cover canvas while preserving aspect ratio
-    try {
-      const imgWidth = (selectedObject as any).width || (selectedObject as any).getScaledWidth?.();
-      const imgHeight = (selectedObject as any).height || (selectedObject as any).getScaledHeight?.();
-      if (imgWidth && imgHeight) {
-        const scaleX = canvas.getWidth() / imgWidth;
-        const scaleY = canvas.getHeight() / imgHeight;
-        const scale = Math.max(scaleX, scaleY);
-        selectedObject.set({ scaleX: scale, scaleY: scale, left: 0, top: 0 });
-      }
-    } catch (err) {
-      // ignore scaling errors
+    if (existingBg) {
+      // Restore it as a regular layer
+      (existingBg as any).customType = "item";
+      existingBg.set({
+        selectable:      true,
+        evented:         true,
+        lockMovementX:   false,
+        lockMovementY:   false,
+        lockScalingX:    false,
+        lockScalingY:    false,
+        lockRotation:    false,
+        hasControls:     true,
+        hasBorders:      true,
+      });
     }
 
+    // ── Step 2: Promote the selected image to background ────────────────────
+    (selectedObject as any).customType = "background";
+    selectedObject.set({
+      selectable:    false,
+      evented:       false,
+      originX:       "left",
+      originY:       "top",
+      hasControls:   false,
+      hasBorders:    false,
+    });
+
+    // Scale to cover the canvas from its natural (un-scaled) pixel dimensions.
+    try {
+      const naturalW = (selectedObject as any).width  || 1;
+      const naturalH = (selectedObject as any).height || 1;
+      const canvasW  = canvas.getWidth();
+      const canvasH  = canvas.getHeight();
+
+      // Cover: fill canvas fully, center so any overflow is symmetrical
+      const scale     = Math.max(canvasW / naturalW, canvasH / naturalH);
+      const renderedW = naturalW * scale;
+      const renderedH = naturalH * scale;
+      selectedObject.set({
+        scaleX: scale,
+        scaleY: scale,
+        left:   (canvasW - renderedW) / 2,
+        top:    (canvasH - renderedH) / 2,
+      });
+    } catch {
+      selectedObject.set({ left: 0, top: 0 });
+    }
+
+    // Pin background to the very bottom of the stack
     canvas.moveObjectTo(selectedObject, 0);
+    canvas.renderAll();
+    get().captureState(selectedObjectId);
+  },
+
+  detachBackground: () => {
+    // Converts the current background image back into a regular editable layer —
+    // same as Figma's "Detach" / Canva's "Remove as background" concept.
+    get().saveCheckpoint();
+    const { selectedObject, canvas, selectedObjectId } = get();
+    if (!selectedObject || !canvas) return;
+
+    if ((selectedObject as any).customType !== "background") return;
+
+    (selectedObject as any).customType = "item";
+    selectedObject.set({
+      selectable:    true,
+      evented:       true,
+      lockMovementX: false,
+      lockMovementY: false,
+      lockScalingX:  false,
+      lockScalingY:  false,
+      lockRotation:  false,
+      hasControls:   true,
+      hasBorders:    true,
+    });
+
+    // Move it just above the bottom so a solid-color background (if any) stays behind
+    const objects = canvas.getObjects();
+    const bgColorRect = objects.find(
+      (o) => (o as any).customType === "background" && o !== selectedObject
+    );
+    const targetIndex = bgColorRect ? canvas.getObjects().indexOf(bgColorRect) + 1 : 1;
+    canvas.moveObjectTo(selectedObject, targetIndex);
+
+    canvas.setActiveObject(selectedObject);
     canvas.renderAll();
     get().captureState(selectedObjectId);
   },
