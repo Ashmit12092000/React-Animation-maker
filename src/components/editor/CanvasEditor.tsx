@@ -340,45 +340,25 @@ export function CanvasEditor() {
       const store = useEditorStore.getState();
       if (!store.drawingEnabled) return;
 
-      // ── Eraser mode: EraserBrush handles erasing internally on the path objects.
-      // The "path" emitted here is the eraser stroke itself — we don't want to add
-      // it as a drawing track. Fabric's EraserBrush has already applied clip masks.
+      // Eraser strokes should not be added as objects — remove and return
       if (store.eraserEnabled) {
-        // Don't add to timeline — eraser strokes are not drawable objects
+        canvas.remove(path);
+        canvas.renderAll();
         return;
       }
 
+      // Mark as a drawing — do NOT add to timeline
       const pathId = `drawing_${Date.now()}`;
       (path as any)._customId = pathId;
       (path as any)._assetName = "Drawing";
       (path as any).customType = "drawing";
-      (path as any).selectable = true;
-      (path as any).evented = true;
+      (path as any).selectable = false;
+      (path as any).evented = false;
       (path as any).stroke = store.drawingColor;
       (path as any).strokeWidth = store.drawingBrushSize;
       (path as any).fill = "";
 
-      store.saveCheckpoint();
-      store.addTrack({
-        id: pathId,
-        name: "Drawing",
-        fabricObject: path,
-        startTime: store.currentTime,
-        endTime: store.currentTime + 5,
-        keyframes: [],
-        color: "green",
-        initialState: {
-          left: path.left || 0,
-          top: path.top || 0,
-          scaleX: path.scaleX || 1,
-          scaleY: path.scaleY || 1,
-          angle: path.angle || 0,
-          opacity: path.opacity ?? 1,
-        },
-        type: "visual",
-      });
-
-      store.setSelectedObject(pathId, path, "object");
+      canvas.renderAll();
     });
 
     // Add cleanup for removed objects
@@ -444,36 +424,190 @@ export function CanvasEditor() {
 
     // ── ERASER MODE ────────────────────────────────────────────────────────
     if (drawingEnabled && eraserEnabled) {
-      // Use Fabric's built-in EraserBrush — it erases at the object/path level
-      // so strokes survive the render loop (destination-out on lowerCanvasEl doesn't).
-      try {
-        const EraserBrush = (fabric as any).EraserBrush;
-        if (EraserBrush) {
-          const eraser = new EraserBrush(canvas);
-          eraser.width = eraserSize;
-          canvas.freeDrawingBrush = eraser;
-        } else {
-          // Fallback: use PencilBrush with canvas background color to simulate erasing
-          const pencil = new fabric.PencilBrush(canvas);
-          pencil.color = "#1a1a2e"; // match canvas background
-          pencil.width = eraserSize;
-          canvas.freeDrawingBrush = pencil;
-        }
-      } catch {
-        // If EraserBrush fails, fallback gracefully
-        const pencil = new fabric.PencilBrush(canvas);
-        pencil.color = "#1a1a2e";
-        pencil.width = eraserSize;
-        canvas.freeDrawingBrush = pencil;
-      }
+      // Keep isDrawingMode=true so upperCanvasEl stays active (pointer-events on,
+      // cursor visible). We use a transparent PencilBrush so the stroke is invisible,
+      // then on mouse:move we erase drawing objects under the pointer in real time.
       canvas.isDrawingMode = true;
       canvas.selection = false;
 
-      // Show eraser cursor
-      if (upperEl) {
-        upperEl.style.cursor = makeEraserCursor(eraserSize);
-      }
-      return;
+      const pencil = new fabric.PencilBrush(canvas);
+      pencil.color = "rgba(0,0,0,0)"; // invisible stroke
+      pencil.width = 1;
+      canvas.freeDrawingBrush = pencil;
+
+      const eraserCursor = makeEraserCursor(eraserSize);
+      const upperElLocal = (canvas as any).upperCanvasEl as HTMLElement | undefined;
+      const lowerElLocal = (canvas as any).lowerCanvasEl as HTMLElement | undefined;
+      const wrapperElLocal = (canvas as any).wrapperEl as HTMLElement | undefined;
+      if (upperElLocal) upperElLocal.style.cursor = eraserCursor;
+      if (lowerElLocal) lowerElLocal.style.cursor = eraserCursor;
+      if (wrapperElLocal) wrapperElLocal.style.cursor = eraserCursor;
+      canvas.defaultCursor = eraserCursor;
+      canvas.freeDrawingCursor = eraserCursor;
+
+      let isErasing = false;
+
+      const eraseAtPoint = (ex: number, ey: number) => {
+        const r = eraserSize / 2;
+        const drawings = canvas.getObjects().filter(
+          (obj) => (obj as any).customType === "drawing"
+        ) as Path[];
+
+        if (drawings.length === 0) return;
+
+        drawings.forEach((pathObj, pi) => {
+          const rawPath: any[] = (pathObj as any).path || [];
+          if (!rawPath.length) return;
+
+          const matrix = pathObj.calcTransformMatrix();
+          const invMatrix = fabric.util.invertTransform(matrix);
+          const localEraser = fabric.util.transformPoint({ x: ex, y: ey }, invMatrix);
+          const lx = localEraser.x, ly = localEraser.y;
+          console.log(`[ERASER] path[${pi}] eraser local=(${lx.toFixed(1)},${ly.toFixed(1)}) rawPath[0]=`, rawPath[0], "rawPath[1]=", rawPath[1]);
+
+          const scaleX = Math.sqrt(matrix[0] ** 2 + matrix[1] ** 2);
+          const scaleY = Math.sqrt(matrix[2] ** 2 + matrix[3] ** 2);
+          const localR = r / ((scaleX + scaleY) / 2);
+
+          const pointInEraser = (px: number, py: number) => {
+            const dx = px - lx, dy = py - ly;
+            return dx * dx + dy * dy <= localR * localR;
+          };
+
+          const segmentHit = (x1: number, y1: number, x2: number, y2: number) => {
+            const dx = x2 - x1, dy = y2 - y1;
+            const dist = Math.sqrt(dx * dx + dy * dy);
+            const steps = Math.max(1, Math.ceil(dist / 2));
+            for (let i = 0; i <= steps; i++) {
+              if (pointInEraser(x1 + dx * i / steps, y1 + dy * i / steps)) return true;
+            }
+            return false;
+          };
+
+          const keepSegments: any[][] = [];
+          let currentSegment: any[] = [];
+          let cx = 0, cy = 0;
+          let erased = false;
+
+          rawPath.forEach((cmd: any[]) => {
+            const type = cmd[0];
+            if (type === "M") {
+              if (currentSegment.length > 0) keepSegments.push(currentSegment);
+              cx = cmd[1]; cy = cmd[2];
+              if (pointInEraser(cx, cy)) { erased = true; currentSegment = []; }
+              else currentSegment = [["M", cx, cy]];
+            } else if (type === "L") {
+              const nx = cmd[1], ny = cmd[2];
+              if (segmentHit(cx, cy, nx, ny)) {
+                erased = true;
+                if (currentSegment.length > 0) keepSegments.push(currentSegment);
+                currentSegment = [];
+              } else {
+                if (currentSegment.length === 0) currentSegment.push(["M", nx, ny]);
+                else currentSegment.push(["L", nx, ny]);
+              }
+              cx = nx; cy = ny;
+            } else if (type === "Q") {
+              const [, qcx, qcy, qex, qey] = cmd;
+              if (segmentHit(cx, cy, qcx, qcy) || segmentHit(qcx, qcy, qex, qey)) {
+                erased = true;
+                if (currentSegment.length > 0) keepSegments.push(currentSegment);
+                currentSegment = [];
+              } else {
+                if (currentSegment.length === 0) currentSegment.push(["M", qex, qey]);
+                else currentSegment.push(["Q", qcx, qcy, qex, qey]);
+              }
+              cx = qex; cy = qey;
+            } else if (type === "C") {
+              const [, c1x, c1y, c2x, c2y, ex2, ey2] = cmd;
+              if (segmentHit(cx, cy, c1x, c1y) || segmentHit(c1x, c1y, c2x, c2y) || segmentHit(c2x, c2y, ex2, ey2)) {
+                erased = true;
+                if (currentSegment.length > 0) keepSegments.push(currentSegment);
+                currentSegment = [];
+              } else {
+                if (currentSegment.length === 0) currentSegment.push(["M", ex2, ey2]);
+                else currentSegment.push(["C", c1x, c1y, c2x, c2y, ex2, ey2]);
+              }
+              cx = ex2; cy = ey2;
+            } else if (type === "z" || type === "Z") {
+              if (currentSegment.length > 0) keepSegments.push(currentSegment);
+              currentSegment = [];
+            }
+          });
+
+          if (currentSegment.length > 0) keepSegments.push(currentSegment);
+          if (!erased) return;
+
+          canvas.remove(pathObj);
+          keepSegments.filter(seg => seg.length > 1).forEach(seg => {
+            const newPath = new Path(seg as any, {
+              stroke: pathObj.stroke,
+              strokeWidth: pathObj.strokeWidth,
+              fill: "",
+              strokeLineCap: "round",
+              strokeLineJoin: "round",
+              selectable: false,
+              evented: false,
+            });
+            (newPath as any).customType = "drawing";
+            (newPath as any)._customId = `drawing_${Date.now()}_${Math.random()}`;
+            canvas.add(newPath);
+          });
+          canvas.renderAll();
+        });
+      };
+
+      // Fabric swallows mouse:down/move in isDrawingMode — use raw DOM events instead
+      const domTarget = ((canvas as any).upperCanvasEl as HTMLCanvasElement);
+
+      const getPoint = (e: MouseEvent) => {
+        const rect = domTarget.getBoundingClientRect();
+        const scaleX = canvas.getWidth()  / rect.width;
+        const scaleY = canvas.getHeight() / rect.height;
+        return {
+          x: (e.clientX - rect.left) * scaleX,
+          y: (e.clientY - rect.top)  * scaleY,
+        };
+      };
+
+      const onMouseDown = (e: MouseEvent) => {
+        if (e.button !== 0) return;
+        isErasing = true;
+        const p = getPoint(e);
+        console.log("[ERASER] DOWN", p.x.toFixed(1), p.y.toFixed(1), "drawings:", canvas.getObjects().filter((o:any)=>o.customType==="drawing").length);
+        eraseAtPoint(p.x, p.y);
+      };
+
+      const onMouseMove = (e: MouseEvent) => {
+        if (!isErasing) return;
+        const p = getPoint(e);
+        eraseAtPoint(p.x, p.y);
+      };
+
+      const onMouseUp = () => { isErasing = false; };
+
+      // Discard the invisible pencil stroke fabric creates
+      const onPathCreated = (opt: any) => {
+        if (opt.path) { canvas.remove(opt.path); canvas.renderAll(); }
+      };
+
+      domTarget.addEventListener("mousedown", onMouseDown);
+      window.addEventListener("mousemove",    onMouseMove);
+      window.addEventListener("mouseup",      onMouseUp);
+      canvas.on("path:created", onPathCreated);
+
+      return () => {
+        domTarget.removeEventListener("mousedown", onMouseDown);
+        window.removeEventListener("mousemove",    onMouseMove);
+        window.removeEventListener("mouseup",      onMouseUp);
+        canvas.off("path:created", onPathCreated);
+        canvas.selection = true;
+        canvas.defaultCursor = "default";
+        canvas.freeDrawingCursor = "crosshair";
+        if (upperElLocal) upperElLocal.style.cursor = "";
+        if (lowerElLocal) lowerElLocal.style.cursor = "";
+        if (wrapperElLocal) wrapperElLocal.style.cursor = "";
+      };
     }
 
     // ── DRAWING MODE ───────────────────────────────────────────────────────
