@@ -58,6 +58,8 @@ export function CanvasEditor() {
     drawingBrushSize,
     eraserEnabled,
     eraserSize,
+    pendingArmatures,
+    setPendingArmatures,
   } = useEditorStore();
   // read saveCheckpoint directly when needed
   const { saveCheckpoint } = useEditorStore.getState
@@ -347,6 +349,9 @@ export function CanvasEditor() {
         return;
       }
 
+      // Save a checkpoint BEFORE this drawing is committed so undo removes it
+      store.saveCheckpoint();
+
       // Mark as a drawing — do NOT add to timeline
       const pathId = `drawing_${Date.now()}`;
       (path as any)._customId = pathId;
@@ -606,6 +611,8 @@ export function CanvasEditor() {
 
       const onMouseDown = (e: MouseEvent) => {
         if (e.button !== 0) return;
+        // Save checkpoint BEFORE erasing begins so the action is fully undoable
+        useEditorStore.getState().saveCheckpoint();
         isErasing = true;
         const p = getPoint(e);
         console.log("[ERASER] DOWN", p.x.toFixed(1), p.y.toFixed(1), "drawings:", canvas.getObjects().filter((o:any)=>o.customType==="drawing").length);
@@ -667,6 +674,83 @@ export function CanvasEditor() {
       upperEl.style.cursor = "";
     }
   }, [drawingEnabled, drawingColor, drawingBrushSize, eraserEnabled, eraserSize]);
+
+  // ── Restore DragonBones characters/props after loading a save file ─────────
+  useEffect(() => {
+    if (!pendingArmatures || pendingArmatures.length === 0) return;
+    const canvas = fabricRef.current;
+    const pixiApp = pixiAppRef.current;
+    if (!canvas || !pixiApp) return;
+
+    (async () => {
+      for (const pa of pendingArmatures) {
+        try {
+          if (pa.customType === "character") {
+            const { display } = await loadCharacter(pa.assetName);
+
+            const CHAR_DB_HEIGHT = 945;
+            const CHAR_DB_WIDTH  = 324;
+            const targetHeight   = 300;
+            const dbScale        = targetHeight / CHAR_DB_HEIGHT;
+            const charW          = Math.round(CHAR_DB_WIDTH * dbScale);
+            const charH          = targetHeight;
+
+            display.scale.set(dbScale);
+            display.zIndex = 10;
+            pixiApp.stage.addChild(display);
+            armatureDisplaysRef.current.push(display);
+
+            // Find the proxy rect on canvas and attach display to it
+            const proxy = canvas.getObjects().find((o: any) => o._customId === pa.trackId);
+            if (proxy) {
+              (proxy as any).armatureDisplay = display;
+              (proxy as any).dbScale         = dbScale;
+              (proxy as any).charW           = charW;
+              (proxy as any).charH           = charH;
+              display.x = (proxy.left ?? pa.left) + charW / 2;
+              display.y = (proxy.top  ?? pa.top)  + charH;
+            }
+
+            // Switch to saved animation
+            const anim = pa.characterAnimation ?? pa.assetName;
+            if (anim && display.animation.animationNames.includes(anim)) {
+              display.animation.play(anim, 0);
+            }
+            useEditorStore.getState().updateTrack(pa.trackId, { characterAnimation: pa.characterAnimation ?? pa.assetName });
+
+          } else if (pa.customType === "prop" && pa.assetName !== "chair") {
+            const { display, dbScale, proxyW, proxyH, offsetX, offsetY } = await loadProp(pa.assetName as any);
+
+            display.zIndex = 0;
+            pixiApp.stage.addChild(display);
+            armatureDisplaysRef.current.push(display);
+
+            const proxy = canvas.getObjects().find((o: any) => o._customId === pa.trackId);
+            if (proxy) {
+              proxy.set({ width: proxyW, height: proxyH });
+              proxy.setCoords();
+              (proxy as any).armatureDisplay = display;
+              (proxy as any).dbScale         = dbScale;
+              (proxy as any).propOffsetX     = offsetX;
+              (proxy as any).propOffsetY     = offsetY;
+              display.x = (proxy.left ?? pa.left) + offsetX;
+              display.y = (proxy.top  ?? pa.top)  + offsetY;
+            }
+
+            const anim = pa.characterAnimation;
+            if (anim && display.animation.animationNames.includes(anim)) {
+              display.animation.play(anim, 0);
+            }
+          }
+        } catch (err) {
+          console.error("[Restore] Failed to restore armature", pa.assetName, err);
+        }
+      }
+      canvas.requestRenderAll();
+      // Clear the queue
+      setPendingArmatures([]);
+    })();
+  }, [pendingArmatures]);
 
   // Context Menu Logging
   useEffect(() => {
