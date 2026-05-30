@@ -1,10 +1,11 @@
 import { useState, useRef, useEffect } from "react";
-import { Trash2, Download, Video, Undo2, Redo2, Search, Eraser, AlertTriangle, Save, FolderOpen, CheckCircle2 } from "lucide-react";
+import { Trash2, Download, Video, Undo2, Redo2, Search, Eraser, AlertTriangle, Save, FolderOpen, CheckCircle2, Loader2, X } from "lucide-react";
 import { Button } from "./button";
 import { Input } from "./input";
 import { useEditorStore } from "../../stores/editorStore";
 import { exportSceneJSON } from "../../utils/export";
 import { saveProject, loadProject } from "../../utils/saveLoad";
+import { startVideoExport, findPixiCanvas, findFabricCanvasEl, type VideoExportController } from "../../utils/videoExport";
 
 export function Toolbar() {
   const {
@@ -24,6 +25,10 @@ export function Toolbar() {
     setDuration,
     saveCheckpoint,
     setPendingArmatures,
+    currentTime,
+    setCurrentTime,
+    setIsPlaying,
+    applyKeyframesAtTime,
   } = useEditorStore();
 
   const [isEditingName, setIsEditingName] = useState(false);
@@ -31,6 +36,12 @@ export function Toolbar() {
   const [confirmClear, setConfirmClear] = useState(false);
   const [loadWarnings, setLoadWarnings] = useState<string[]>([]);
   const [saveFlash, setSaveFlash] = useState(false);
+
+  // ── Video export state ────────────────────────────────────────────────────
+  const [isExportingVideo, setIsExportingVideo] = useState(false);
+  const [exportProgress, setExportProgress] = useState(0);
+  const [exportStage, setExportStage] = useState<"recording" | "converting" | "done">("recording");
+  const exportControllerRef = useRef<VideoExportController | null>(null);
 
   const pixabayRef  = useRef<HTMLDivElement | null>(null);
   const fileInputRef = useRef<HTMLInputElement | null>(null);
@@ -61,6 +72,79 @@ export function Toolbar() {
     saveProject(canvas, tracks, projectName, duration);
     setSaveFlash(true);
     setTimeout(() => setSaveFlash(false), 2000);
+  };
+
+  const handleExportVideo = () => {
+    if (!canvas) return;
+
+    const fabricEl = findFabricCanvasEl();
+    const pixiEl   = findPixiCanvas();
+
+    if (!fabricEl || !pixiEl) {
+      alert("Could not find canvas layers. Make sure the editor is fully loaded.");
+      return;
+    }
+
+    // Stop any current playback and rewind
+    setIsPlaying(false);
+    setCurrentTime(0);
+    applyKeyframesAtTime(0);
+
+    setIsExportingVideo(true);
+    setExportProgress(0);
+    setExportStage("recording");
+
+    // IMPORTANT: store `duration` defaults to 5000 (seconds) — never use it as a ceiling.
+    // Only derive duration from actual track end times.
+    const trackMax = tracks.length > 0 ? Math.max(...tracks.map(t => t.endTime)) : 0;
+    const maxDuration = trackMax > 0 ? trackMax : 10; // fallback 10s if no tracks
+
+    const controller = startVideoExport({
+      fabricCanvas: fabricEl,
+      pixiCanvas:   pixiEl,
+      tracks,
+      duration: maxDuration,
+      fps: 30,
+      projectName,
+      // ⚠️ onFrame fires 60×/sec — NEVER call React setState here.
+      // Call the store imperatively via getState() to move the timeline
+      // without triggering React re-renders on every frame.
+      onFrame: (t) => {
+        const s = useEditorStore.getState();
+        s.setCurrentTime(t);
+        s.applyKeyframesAtTime(t);
+      },
+      onProgress: (pct) => {
+        setExportStage(pct >= 100 ? "done" : "recording");
+        setExportProgress(pct);
+      },
+      onComplete: () => {
+        setExportProgress(100);
+        setExportStage("done");
+        setIsExportingVideo(false);
+        setIsPlaying(false);
+        setCurrentTime(0);
+        applyKeyframesAtTime(0);
+        exportControllerRef.current = null;
+      },
+      onError: (err) => {
+        console.error("Video export error:", err);
+        alert(`Export failed: ${err.message}`);
+        setIsExportingVideo(false);
+        exportControllerRef.current = null;
+      },
+    });
+
+    exportControllerRef.current = controller;
+  };
+
+  const handleCancelExport = () => {
+    exportControllerRef.current?.cancel();
+    exportControllerRef.current = null;
+    setIsExportingVideo(false);
+    setIsPlaying(false);
+    setCurrentTime(0);
+    applyKeyframesAtTime(0);
   };
 
   const handleLoadClick = () => fileInputRef.current?.click();
@@ -222,8 +306,17 @@ export function Toolbar() {
             )}
           </div>
 
-          <Button variant="secondary" size="sm">
-            <Video className="h-4 w-4" /> Export Video
+          <Button
+            variant="secondary"
+            size="sm"
+            onClick={handleExportVideo}
+            disabled={isExportingVideo || tracks.length === 0}
+            className="bg-red-600 hover:bg-red-700 text-white border-red-500"
+          >
+            {isExportingVideo
+              ? <><Loader2 className="h-4 w-4 animate-spin" /> Exporting…</>
+              : <><Video className="h-4 w-4" /> Export Video</>
+            }
           </Button>
         </div>
       </div>
@@ -292,6 +385,65 @@ export function Toolbar() {
             </ul>
             <Button variant="outline" onClick={() => setLoadWarnings([])}>
               Got it
+            </Button>
+          </div>
+        </div>
+      )}
+
+      {/* ── Video Export Progress Modal ──────────────────────────────────── */}
+      {isExportingVideo && (
+        <div
+          className="fixed inset-0 z-[9999] flex items-center justify-center"
+          style={{ backgroundColor: "rgba(0,0,0,0.75)", backdropFilter: "blur(4px)" }}
+        >
+          <div className="bg-gray-900 border border-gray-700 rounded-xl shadow-2xl p-6 w-[400px] flex flex-col gap-5">
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-3">
+                <div className="flex-shrink-0 w-10 h-10 rounded-full bg-red-500/15 flex items-center justify-center">
+                  <Video className="h-5 w-5 text-red-400" />
+                </div>
+                <div>
+                  <h2 className="text-base font-semibold text-foreground">Exporting Video</h2>
+                  <p className="text-xs text-muted-foreground mt-0.5">
+                    {exportStage === "done" ? "Done! Downloading…" : "Recording canvas in real time…"}
+                  </p>
+                </div>
+              </div>
+              <button
+                onClick={handleCancelExport}
+                className="text-gray-400 hover:text-white transition-colors"
+                title="Cancel export"
+              >
+                <X className="h-5 w-5" />
+              </button>
+            </div>
+            <div className="w-full bg-gray-800 rounded-full h-3 overflow-hidden">
+              <div
+                className="h-3 rounded-full transition-all duration-300"
+                style={{
+                  width: `${exportProgress}%`,
+                  background: exportStage === "converting"
+                    ? "linear-gradient(90deg, #f59e0b, #ef4444)"
+                    : "linear-gradient(90deg, #3b82f6, #8b5cf6)",
+                }}
+              />
+            </div>
+            <div className="flex justify-between items-center text-xs text-muted-foreground">
+              <span>
+                {exportStage === "done" ? "Complete!" : `Recording… ${exportProgress}%`}
+              </span>
+              <span className="text-gray-500">Do not close this tab</span>
+            </div>
+            <p className="text-xs text-gray-600 leading-relaxed">
+              The animation plays at real speed during recording. A 10-second project takes ~10 seconds. File downloads automatically as .webm when done.
+            </p>
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={handleCancelExport}
+              className="border-red-500/40 text-red-400 hover:bg-red-500/10"
+            >
+              Cancel Export
             </Button>
           </div>
         </div>

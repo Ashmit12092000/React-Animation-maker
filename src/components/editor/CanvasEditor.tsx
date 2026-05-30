@@ -1441,11 +1441,12 @@ export function CanvasEditor() {
       onDragOver={handleDragOver}
     >
       <div className="relative rounded-lg overflow-hidden shadow-2xl ring-1 ring-border/50">
-        <canvas ref={canvasRef} className="block" />
+        <canvas ref={canvasRef} className="block" data-canvas-role="fabric" />
         <canvas 
           ref={pixiCanvasRef} 
           className="absolute top-0 left-0 pointer-events-none block" 
           style={{ backgroundColor: 'transparent' }}
+          data-canvas-role="pixi"
         />
         <div className="absolute bottom-2 right-2 text-xs text-muted-foreground bg-background/80 px-2 py-1 rounded">
           960 × 540
