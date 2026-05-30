@@ -45,12 +45,7 @@ const propGroups: CharacterGroup[] = [
     label: "Props",
     color: "#f97316",
     assets: [
-      { id: "prop-chair",      name: "chair",      type: "prop" as any, icon: "🪑", color: "#8b5cf6" },
-      { id: "prop-tshirt",     name: "tshirt",     type: "prop" as any, icon: "👕", color: "#f97316" },
-      { id: "prop-car",        name: "car",         type: "prop" as any, icon: "🚗", color: "#f97316" },
-      { id: "prop-food",       name: "food",        type: "prop" as any, icon: "🍽️", color: "#f97316" },
-      { id: "prop-long_broom", name: "long_broom",  type: "prop" as any, icon: "🧹", color: "#f97316" },
-      { id: "prop-cup",        name: "cup",         type: "prop" as any, icon: "☕", color: "#f59e0b" },
+      { id: "prop-chair", name: "chair", type: "prop" as any, icon: "🪑", color: "#8b5cf6" },
     ],
   },
 ];
@@ -67,51 +62,11 @@ const characterGroups: CharacterGroup[] = [
     ],
   },
   {
-    label: "Morning / Rest",
-    color: "#f59e0b",
-    assets: [
-      { id: 'char-yawn',           name: 'yawn',           type: 'character', icon: '🥱', color: '#f59e0b' },
-      { id: 'char-stretch',        name: 'stretch',        type: 'character', icon: '🙆', color: '#f59e0b' },
-      { id: 'char-rub_eyes',       name: 'rub_eyes',       type: 'character', icon: '😴', color: '#f59e0b' },
-      { id: 'char-swing_legs_out', name: 'swing_legs_out', type: 'character', icon: '🛏️', color: '#f59e0b' },
-      { id: 'char-put_on_shirt',   name: 'put_on_shirt',   type: 'character', icon: '👕', color: '#f59e0b' },
-    ],
-  },
-  {
-    label: "Activity",
-    color: "#10b981",
-    assets: [
-      { id: 'char-flip_food',   name: 'flip_food',   type: 'character', icon: '🍳', color: '#10b981' },
-      { id: 'char-eat',         name: 'eat',         type: 'character', icon: '🍽️', color: '#10b981' },
-      { id: 'char-drink',       name: 'drink',       type: 'character', icon: '☕', color: '#10b981' },
-      { id: 'char-wipe_table',  name: 'wipe_table',  type: 'character', icon: '🧹', color: '#10b981' },
-      { id: 'char-read_book',   name: 'read_book',   type: 'character', icon: '📖', color: '#10b981' },
-      { id: 'char-look_up',     name: 'look_up',     type: 'character', icon: '👀', color: '#10b981' },
-      { id: 'char-desk_stretch',name: 'desk_stretch',type: 'character', icon: '💺', color: '#10b981' },
-      { id: 'char-pick_up_box', name: 'pick_up_box', type: 'character', icon: '📦', color: '#10b981' },
-    ],
-  },
-  {
     label: "Posture",
     color: "#8b5cf6",
     assets: [
-      { id: 'char-sit_down',    name: 'sit_down',    type: 'character', icon: '🪑', color: '#8b5cf6' },
-      { id: 'char-cross_legs',  name: 'cross_legs',  type: 'character', icon: '🧘', color: '#8b5cf6' },
-      { id: 'char-sit_idle',    name: 'sit_idle',    type: 'character', icon: '😌', color: '#8b5cf6' },
-      { id: 'char-lay_down',    name: 'lay_down',    type: 'character', icon: '🛌', color: '#8b5cf6' },
-      { id: 'char-pull_blanket',name: 'pull_blanket',type: 'character', icon: '🛏️', color: '#8b5cf6' },
-      { id: 'char-fall_asleep', name: 'fall_asleep', type: 'character', icon: '💤', color: '#8b5cf6' },
-    ],
-  },
-  {
-    label: "Social",
-    color: "#e879f9",
-    assets: [
-      { id: 'char-handshake',  name: 'handshake',  type: 'character', icon: '🤝', color: '#e879f9' },
-      { id: 'char-wave',       name: 'wave',       type: 'character', icon: '👋', color: '#e879f9' },
-      { id: 'char-point',      name: 'point',      type: 'character', icon: '👉', color: '#e879f9' },
-      { id: 'char-nod',        name: 'nod',        type: 'character', icon: '🙂', color: '#e879f9' },
-      { id: 'char-shake_head', name: 'shake_head', type: 'character', icon: '🙅', color: '#e879f9' },
+      { id: 'char-sit_down', name: 'sit_down', type: 'character', icon: '🪑', color: '#8b5cf6' },
+      { id: 'char-sit_idle', name: 'sit_idle', type: 'character', icon: '😌', color: '#8b5cf6' },
     ],
   },
 ];
@@ -189,7 +144,11 @@ export function AssetPanel() {
     setDrawingEnabled,
     setDrawingColor,
     setDrawingBrushSize,
-  } = useEditorStore(); // Add addVideoTrack
+    eraserEnabled,
+    eraserSize,
+    setEraserEnabled,
+    setEraserSize,
+  } = useEditorStore();
   
   // Use uploadedAssets for the library view, separated from active tracks
   const audioAssets = uploadedAssets.filter((a) => a.type === "audio");
@@ -283,6 +242,11 @@ export function AssetPanel() {
       // toggle open/close but keep the active tab selected so reopening is instant
       setIsOpen((s) => !s);
     } else {
+      // Disable drawing when leaving draw tab
+      if (activeTab === "draw" && tab !== "draw") {
+        setDrawingEnabled(false);
+        setEraserEnabled(false);
+      }
       // set the tab first so content exists for the open animation, then open
       setActiveTab(tab);
       setIsOpen(true);
@@ -300,7 +264,6 @@ export function AssetPanel() {
     "#111827",
   ];
 
-  const drawSizes = [2, 4, 8, 12, 18];
 
   return (
     <div
@@ -652,35 +615,44 @@ export function AssetPanel() {
             </div>
 
             <div className="flex-1 overflow-y-auto p-4 space-y-6 custom-scrollbar">
+              {/* Enable / Disable */}
               <div className="space-y-2">
                 <Label className="text-xs">Tool</Label>
                 <Button
                   size="sm"
                   variant={drawingEnabled ? "default" : "outline"}
-                  onClick={() => setDrawingEnabled(!drawingEnabled)}
+                  onClick={() => {
+                    setDrawingEnabled(!drawingEnabled);
+                    if (drawingEnabled) setEraserEnabled(false);
+                  }}
                   className="w-full"
                 >
                   {drawingEnabled ? "Drawing Enabled" : "Enable Drawing"}
                 </Button>
               </div>
 
-              <div className="space-y-2">
-                <Label className="text-xs">Brush Size</Label>
-                <div className="flex flex-wrap gap-2">
-                  {drawSizes.map((size) => (
-                    <Button
-                      key={size}
-                      size="sm"
-                      variant={drawingBrushSize === size ? "default" : "outline"}
-                      onClick={() => setDrawingBrushSize(size)}
-                      className="px-3"
-                    >
-                      {size}px
-                    </Button>
-                  ))}
+              {/* Brush Size Slider */}
+              <div className="space-y-3">
+                <div className="flex items-center justify-between">
+                  <Label className="text-xs">Brush Size</Label>
+                  <span className="text-xs text-muted-foreground font-mono">{drawingBrushSize}px</span>
+                </div>
+                <input
+                  type="range"
+                  min={1}
+                  max={60}
+                  value={drawingBrushSize}
+                  onChange={(e) => setDrawingBrushSize(Number(e.target.value))}
+                  className="w-full accent-primary"
+                  style={{ cursor: "pointer" }}
+                />
+                <div className="flex justify-between text-xs text-muted-foreground">
+                  <span>1px</span>
+                  <span>60px</span>
                 </div>
               </div>
 
+              {/* Color */}
               <div className="space-y-2">
                 <Label className="text-xs">Color</Label>
                 <div className="grid grid-cols-4 gap-2">
@@ -715,6 +687,42 @@ export function AssetPanel() {
                   />
                 </div>
               </div>
+
+              {/* Eraser — only shown when drawing is enabled */}
+              {drawingEnabled && (
+                <div className="space-y-3 border-t border-panel-border pt-4">
+                  <Label className="text-xs">Eraser</Label>
+                  <Button
+                    size="sm"
+                    variant={eraserEnabled ? "default" : "outline"}
+                    onClick={() => setEraserEnabled(!eraserEnabled)}
+                    className="w-full"
+                  >
+                    {eraserEnabled ? "✦ Eraser Active" : "Enable Eraser"}
+                  </Button>
+                  {eraserEnabled && (
+                    <div className="space-y-2">
+                      <div className="flex items-center justify-between">
+                        <Label className="text-xs text-muted-foreground">Eraser Size</Label>
+                        <span className="text-xs text-muted-foreground font-mono">{eraserSize}px</span>
+                      </div>
+                      <input
+                        type="range"
+                        min={4}
+                        max={120}
+                        value={eraserSize}
+                        onChange={(e) => setEraserSize(Number(e.target.value))}
+                        className="w-full accent-destructive"
+                        style={{ cursor: "pointer" }}
+                      />
+                      <div className="flex justify-between text-xs text-muted-foreground">
+                        <span>4px</span>
+                        <span>120px</span>
+                      </div>
+                    </div>
+                  )}
+                </div>
+              )}
             </div>
           </div>
         )}
@@ -725,7 +733,7 @@ export function AssetPanel() {
             <div className="p-4 border-b border-panel-border">
               <h2 className="font-semibold text-foreground">Characters & Props</h2>
               <p className="text-xs text-muted-foreground mt-1">
-                28 animations · 6 props — drag onto canvas
+                6 animations · 1 prop — drag onto canvas
               </p>
             </div>
             <div className="flex-1 overflow-y-auto p-4 custom-scrollbar space-y-5">

@@ -52,6 +52,8 @@ export function CanvasEditor() {
     drawingEnabled,
     drawingColor,
     drawingBrushSize,
+    eraserEnabled,
+    eraserSize,
   } = useEditorStore();
   // read saveCheckpoint directly when needed
   const { saveCheckpoint } = useEditorStore.getState
@@ -147,6 +149,79 @@ export function CanvasEditor() {
     };
 
     // --- Event Listeners ---
+
+    // ── Real-time eraser via raw pointer events on the upper canvas ───────────
+    // We bypass Fabric's drawing mode entirely for erasing, so no path artifacts.
+    let eraserActive = false;
+    let lastEraserX = 0;
+    let lastEraserY = 0;
+
+    const getCanvasPos = (e: PointerEvent) => {
+      const rect = (canvas as any).upperCanvasEl
+        ? (canvas as any).upperCanvasEl.getBoundingClientRect()
+        : (canvasRef.current as HTMLCanvasElement).getBoundingClientRect();
+      const scaleX = ((canvas as any).width || 960) / rect.width;
+      const scaleY = ((canvas as any).height || 540) / rect.height;
+      return {
+        x: (e.clientX - rect.left) * scaleX,
+        y: (e.clientY - rect.top)  * scaleY,
+      };
+    };
+
+    const eraserPointerDown = (e: PointerEvent) => {
+      const store = useEditorStore.getState();
+      if (!store.drawingEnabled || !store.eraserEnabled) return;
+      eraserActive = true;
+      const pos = getCanvasPos(e);
+      lastEraserX = pos.x;
+      lastEraserY = pos.y;
+      // Dot for click with no drag
+      const lowerEl = (canvas as any).lowerCanvasEl as HTMLCanvasElement | undefined;
+      if (lowerEl) {
+        const ctx = lowerEl.getContext("2d")!;
+        ctx.save();
+        ctx.globalCompositeOperation = "destination-out";
+        ctx.fillStyle = "rgba(0,0,0,1)";
+        ctx.beginPath();
+        ctx.arc(pos.x, pos.y, store.eraserSize / 2, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.restore();
+      }
+    };
+
+    const eraserPointerMove = (e: PointerEvent) => {
+      if (!eraserActive) return;
+      const store = useEditorStore.getState();
+      if (!store.drawingEnabled || !store.eraserEnabled) { eraserActive = false; return; }
+      const pos = getCanvasPos(e);
+      const lowerEl = (canvas as any).lowerCanvasEl as HTMLCanvasElement | undefined;
+      if (lowerEl) {
+        const ctx = lowerEl.getContext("2d")!;
+        ctx.save();
+        ctx.globalCompositeOperation = "destination-out";
+        ctx.strokeStyle = "rgba(0,0,0,1)";
+        ctx.lineWidth = store.eraserSize;
+        ctx.lineCap = "round";
+        ctx.lineJoin = "round";
+        ctx.beginPath();
+        ctx.moveTo(lastEraserX, lastEraserY);
+        ctx.lineTo(pos.x, pos.y);
+        ctx.stroke();
+        ctx.restore();
+      }
+      lastEraserX = pos.x;
+      lastEraserY = pos.y;
+    };
+
+    const eraserPointerUp = () => { eraserActive = false; };
+
+    const upperEl: HTMLElement | undefined = (canvas as any).upperCanvasEl;
+    if (upperEl) {
+      upperEl.addEventListener("pointerdown", eraserPointerDown);
+      upperEl.addEventListener("pointermove", eraserPointerMove);
+      upperEl.addEventListener("pointerup",   eraserPointerUp);
+      upperEl.addEventListener("pointerleave",eraserPointerUp);
+    }
 
     // 1. Mouse Down: Handle Context Menu & Selection
     canvas.on("mouse:down", (opt) => {
@@ -334,6 +409,12 @@ export function CanvasEditor() {
       const store = useEditorStore.getState();
       if (!store.drawingEnabled) return;
 
+      // ── Eraser mode: handled via raw pointer events, not path:created ───────
+      if (store.eraserEnabled) {
+        canvas.remove(path); // discard any stray path if it somehow got created
+        return;
+      }
+
       const pathId = `drawing_${Date.now()}`;
       (path as any)._customId = pathId;
       (path as any)._assetName = "Drawing";
@@ -370,6 +451,22 @@ export function CanvasEditor() {
     // Add cleanup for removed objects
    canvas.on("object:removed", (e) => {
       const obj = e.target;
+
+      // ── DragonBones armature cleanup (character & prop) ──────────────────
+      if (obj && ((obj as any).customType === "character" || (obj as any).customType === "prop")) {
+        const display = (obj as any).armatureDisplay;
+        if (display) {
+          const pixiApp = pixiAppRef.current;
+          if (pixiApp && pixiApp.stage.children.includes(display)) {
+            pixiApp.stage.removeChild(display);
+          }
+          try { display.dispose(); } catch (_) {}
+          // Remove from the tracking ref
+          armatureDisplaysRef.current = armatureDisplaysRef.current.filter((d) => d !== display);
+          (obj as any).armatureDisplay = null;
+        }
+      }
+
       if (obj && (obj as any).customType === "video") {
         const trackId = (obj as any)._customId;
         
@@ -392,6 +489,12 @@ export function CanvasEditor() {
     });
 
     return () => {
+      if (upperEl) {
+        upperEl.removeEventListener("pointerdown", eraserPointerDown);
+        upperEl.removeEventListener("pointermove", eraserPointerMove);
+        upperEl.removeEventListener("pointerup",   eraserPointerUp);
+        upperEl.removeEventListener("pointerleave",eraserPointerUp);
+      }
       canvas.dispose();
       setCanvas(null);
     };
@@ -401,17 +504,25 @@ export function CanvasEditor() {
     const canvas = fabricRef.current;
     if (!canvas) return;
 
+    // When eraser is active, disable Fabric's drawing mode entirely so our
+    // raw pointerdown/move/up listeners on upperCanvasEl work unobstructed.
+    if (eraserEnabled && drawingEnabled) {
+      canvas.isDrawingMode = false;
+      canvas.selection = false;
+      return;
+    }
+
     canvas.isDrawingMode = drawingEnabled;
     canvas.selection = !drawingEnabled;
 
-    if (drawingEnabled) {
+    if (drawingEnabled && !eraserEnabled) {
       if (!canvas.freeDrawingBrush) {
         canvas.freeDrawingBrush = new fabric.PencilBrush(canvas);
       }
       canvas.freeDrawingBrush.color = drawingColor;
       canvas.freeDrawingBrush.width = drawingBrushSize;
     }
-  }, [drawingEnabled, drawingColor, drawingBrushSize]);
+  }, [drawingEnabled, drawingColor, drawingBrushSize, eraserEnabled, eraserSize]);
 
   // Context Menu Logging
   useEffect(() => {
