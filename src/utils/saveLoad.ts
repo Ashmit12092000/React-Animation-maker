@@ -16,6 +16,7 @@ import {
   Triangle,
   Polygon,
   Path,
+  Line,
 } from "fabric";
 import type { TrackObject } from "../types";
 
@@ -70,6 +71,11 @@ interface SavedFabricObject {
   points?: { x: number; y: number }[];
   stroke?: string;
   strokeWidth?: number;
+  // line endpoints
+  x1?: number;
+  y1?: number;
+  x2?: number;
+  y2?: number;
   // character / prop
   assetName?: string;   // the animation / prop name used to re-create the armature
   dbScale?: number;
@@ -212,7 +218,7 @@ function serializeFabricObject(obj: any): SavedFabricObject | null {
     base.stroke = obj.stroke;  base.strokeWidth = obj.strokeWidth;
     base.pathData = obj.path ? JSON.stringify(obj.path) : "";
   }
-  else if (obj.type === "line")     { base.shapeType = "line"; base.stroke = obj.stroke; base.strokeWidth = obj.strokeWidth; base.shapeFill = obj.fill; }
+  else if (obj.type === "line")     { base.shapeType = "line"; base.stroke = obj.stroke; base.strokeWidth = obj.strokeWidth; base.shapeFill = obj.fill; base.x1 = obj.x1; base.y1 = obj.y1; base.x2 = obj.x2; base.y2 = obj.y2; }
 
   return base;
 }
@@ -373,6 +379,19 @@ async function rebuildFabricObject(saved: SavedFabricObject): Promise<any | null
   if (st === "triangle") return new Triangle({ ...base, width: saved.width ?? 100, height: saved.height ?? 100, fill: saved.shapeFill ?? "#4ecdc4" });
   if (st === "ellipse")  return new Ellipse({ ...base, rx: saved.rx ?? 70, ry: saved.ry ?? 40, fill: saved.shapeFill ?? "#4ecdc4" });
   if (st === "polygon")  return new Polygon(saved.points ?? [], { ...base, fill: saved.shapeFill ?? "#4ecdc4" });
+  if (st === "line") {
+    const x1 = saved.x1 ?? (saved.left ?? 0);
+    const y1 = saved.y1 ?? (saved.top  ?? 0);
+    const x2 = saved.x2 ?? (saved.left ?? 0) + 120;
+    const y2 = saved.y2 ?? (saved.top  ?? 0);
+    return new Line([x1, y1, x2, y2], {
+      ...base,
+      stroke: saved.stroke ?? "#ffffff",
+      strokeWidth: saved.strokeWidth ?? 6,
+      fill: saved.shapeFill ?? "",
+      strokeLineCap: "round" as any,
+    });
+  }
   if (st === "rect") {
     return new Rect({
       ...base,

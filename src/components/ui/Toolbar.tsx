@@ -306,18 +306,6 @@ export function Toolbar() {
             )}
           </div>
 
-          <Button
-            variant="secondary"
-            size="sm"
-            onClick={handleExportVideo}
-            disabled={isExportingVideo || tracks.length === 0}
-            className="bg-red-600 hover:bg-red-700 text-white border-red-500"
-          >
-            {isExportingVideo
-              ? <><Loader2 className="h-4 w-4 animate-spin" /> Exporting…</>
-              : <><Video className="h-4 w-4" /> Export Video</>
-            }
-          </Button>
         </div>
       </div>
 
