@@ -348,12 +348,14 @@ export function Timeline() {
         const currentMax = maxDurationRef.current;
         if (elapsed >= currentMax) {
           setCurrentTime(currentMax);
-          applyKeyframesAtTime(currentMax); // ensure arrival frame runs before isPlaying flips
+          applyKeyframesAtTime(currentMax); 
           setIsPlaying(false);
           syncAudioPlayback();
           return;
         }
-        setCurrentTime(elapsed); applyKeyframesAtTime(elapsed);
+        setCurrentTime(elapsed); 
+        applyKeyframesAtTime(elapsed);
+        syncAudioPlayback(); // FIX: Dynamically sync/trigger audio properties on every timeline tick
         animationRef.current = requestAnimationFrame(animate);
       };
       animationRef.current = requestAnimationFrame(animate);
@@ -366,7 +368,7 @@ export function Timeline() {
   }, [isPlaying, setCurrentTime, applyKeyframesAtTime, syncAudioPlayback, setIsPlaying]);
 
   const handleTrackClick = (e: React.MouseEvent, track: (typeof tracks)[0]) => {
-    e.stopPropagation(); // prevent bubbling to handleTimelineClick (which would move the playhead)
+    e.stopPropagation(); 
     if (track.type === "audio") setSelectedObject(track.id, null, "audio");
     else if (track.type === "video") setSelectedObject(track.id, null, "video");
     else if (track.fabricObject) {
@@ -388,8 +390,6 @@ export function Timeline() {
 
   const selectedTrack = tracks.find((t) => t.id === selectedObjectId);
   const hasPath = !!(selectedTrack?.pathAnimation);
-  // A drawing object is selected when: no timeline track exists for it AND
-  // either the fabric object has customType "drawing" OR the id starts with "drawing_"
   const isDrawingObjectSelected =
     !selectedTrack &&
     !!selectedObjectId &&
@@ -397,7 +397,6 @@ export function Timeline() {
       selectedObjectId.startsWith("drawing_"));
 
   const handleDrawPath = () => {
-    // Hand-drawn canvas object selected (no timeline track yet) — create track on the fly
     if (isDrawingObjectSelected && selectedObject) {
       const store = useEditorStore.getState();
       const trackId = (selectedObject as any)._customId || `drawing_${Date.now()}`;
@@ -439,7 +438,6 @@ export function Timeline() {
     removePathFromTrack(selectedObjectId);
     toast.success("Path removed");
   };
-
 
   const [showVoiceRecorder, setShowVoiceRecorder] = useState(false);
   const [trimDialog, setTrimDialog] = useState<{ trackId: string; startTime: number; endTime: number } | null>(null);
@@ -623,7 +621,7 @@ export function Timeline() {
                   : "bg-white/5 text-gray-400 border-white/10 hover:bg-white/10",
               )}
             >
-              <RotateCcw className="w-3 h-3" />
+              <Route className="w-3 h-3" />
               Orient
             </button>
           )}
@@ -789,7 +787,6 @@ export function Timeline() {
                       />
                     </div>
                   )}
-                  {/* Prop action shortcut — visible when this prop track is selected */}
                   {isSelected && (track.fabricObject as any)?.customType === "prop" && (
                     <button
                       onClick={(e) => openPropActions(track, e)}
@@ -1031,14 +1028,12 @@ export function Timeline() {
         };
 
         const handleRawInput = (field: "startTime" | "endTime", raw: string) => {
-          // Allow free typing — only parse & clamp on blur
           setTrimDialog((prev) => prev ? { ...prev, [field]: raw as any } : prev);
         };
 
         const handleBlur = (field: "startTime" | "endTime", raw: string) => {
           const val = parseFloat(raw);
           if (isNaN(val)) {
-            // revert to last good value
             setTrimDialog((prev) => prev ? { ...prev } : prev);
             return;
           }
@@ -1106,7 +1101,6 @@ export function Timeline() {
                 boxShadow: "0 24px 64px rgba(0,0,0,0.8), 0 0 0 1px rgba(139,92,246,0.2)",
               }}
             >
-              {/* Header */}
               <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 20 }}>
                 <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
                   <span style={{
@@ -1135,7 +1129,6 @@ export function Timeline() {
                 >✕</button>
               </div>
 
-              {/* Visual bar */}
               <div style={{ marginBottom: 20 }}>
                 <div style={{
                   height: 28, borderRadius: 8, position: "relative",
@@ -1143,7 +1136,6 @@ export function Timeline() {
                   border: "1px solid rgba(255,255,255,0.07)",
                   overflow: "hidden",
                 }}>
-                  {/* trimmed zone */}
                   <div style={{
                     position: "absolute",
                     left: `${pctStart}%`,
@@ -1162,7 +1154,6 @@ export function Timeline() {
                       {trimmedDur.toFixed(2)}s
                     </div>
                   </div>
-                  {/* cut-off left */}
                   {pctStart > 0 && (
                     <div style={{
                       position: "absolute", left: 0, top: 0, bottom: 0,
@@ -1170,7 +1161,6 @@ export function Timeline() {
                       background: "repeating-linear-gradient(45deg, rgba(255,0,0,0.06) 0px, rgba(255,0,0,0.06) 4px, transparent 4px, transparent 8px)",
                     }} />
                   )}
-                  {/* cut-off right */}
                   {pctEnd < 100 && (
                     <div style={{
                       position: "absolute", right: 0, top: 0, bottom: 0,
@@ -1185,9 +1175,7 @@ export function Timeline() {
                 </div>
               </div>
 
-              {/* Inputs */}
               <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
-                {/* Start Time */}
                 <div>
                   <label style={{ fontSize: 10, fontWeight: 700, color: "#94a3b8", letterSpacing: "0.07em", textTransform: "uppercase", display: "block", marginBottom: 6 }}>
                     Start Time
@@ -1227,7 +1215,6 @@ export function Timeline() {
                   </div>
                 </div>
 
-                {/* End Time */}
                 <div>
                   <label style={{ fontSize: 10, fontWeight: 700, color: "#94a3b8", letterSpacing: "0.07em", textTransform: "uppercase", display: "block", marginBottom: 6 }}>
                     End Time
@@ -1268,7 +1255,6 @@ export function Timeline() {
                 </div>
               </div>
 
-              {/* Summary row */}
               <div style={{
                 marginTop: 16, padding: "10px 14px", borderRadius: 10,
                 background: isValid ? "rgba(139,92,246,0.08)" : "rgba(239,68,68,0.08)",
@@ -1294,7 +1280,6 @@ export function Timeline() {
                 )}
               </div>
 
-              {/* Actions */}
               <div style={{ display: "flex", gap: 8, marginTop: 16 }}>
                 <button
                   onClick={() => setTrimDialog(null)}
@@ -1336,7 +1321,6 @@ export function Timeline() {
 
       <KeyframeEditor />
 
-      {/* Prop action popup — opened from timeline track double-click or Actions button */}
       {propPopup && (
         <PropActionPopup
           propName={propPopup.propName}

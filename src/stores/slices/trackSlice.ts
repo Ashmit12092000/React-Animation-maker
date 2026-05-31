@@ -673,7 +673,7 @@ export const createTrackSlice: StateCreator<EditorState, [], [], TrackSlice> = (
     } else {
       audio.addEventListener("loadedmetadata", setDuration);
     }
-    set((state) => ({ tracks: [...state.tracks, newTrack] }));
+    set((state) => ({ tracks: [...state.tracks, { ...newTrack, volume: 1 }] }));
   },
 
   addTTSTrack: (name, ttsParams, duration) => {
@@ -878,19 +878,21 @@ export const createTrackSlice: StateCreator<EditorState, [], [], TrackSlice> = (
       if (isPlaying && isInRange) {
         const timeElapsedInTrack = currentTime - track.startTime;
         const targetFileTime = timeElapsedInTrack + (track.mediaOffset || 0);
+        const drift = Math.abs(mediaElement.currentTime - targetFileTime);
+
+        // FIX: If the element is currently paused but is inside an active track block,
+        // OR if the internal playhead has noticeably drifted from the timeline track playhead position,
+        // immediately hard-sync its internal playback destination.
+        if (mediaElement.paused || drift > 0.15) {
+          mediaElement.currentTime = targetFileTime;
+        }
 
         if (mediaElement.paused) {
-          mediaElement.currentTime = targetFileTime;
           const playPromise = mediaElement.play();
           if (playPromise !== undefined) {
             playPromise.catch(e => {
               if (e.name !== "AbortError") console.warn("Media play error", e);
             });
-          }
-        } else {
-          const drift = Math.abs(mediaElement.currentTime - targetFileTime);
-          if (drift > 0.1) {
-            mediaElement.currentTime = targetFileTime;
           }
         }
       } else {
