@@ -101,6 +101,10 @@ export interface TrackObject {
     pitch: number;
     rate: number;
   } | null;
+  // Audio post-processing
+  audioFilterKeys?: string[];       // active effect keys e.g. ["reverb","pitch_up"]
+  audioCleaningKeys?: string[];     // active cleaning keys e.g. ["noise_reduction"]
+  processedAudioSrc?: string | null; // blob URL of the processed audio
   // Character-specific
   characterAnimation?: string | null;        // current DragonBones anim e.g. "Idle","walk","run"
   pendingPathAction?: CharacterPathAction | null;

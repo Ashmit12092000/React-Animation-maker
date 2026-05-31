@@ -19,12 +19,14 @@ import {
   Volume2,
   VolumeX,
   Zap,
+  Wand2,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { KeyframeEditor } from "./KeyframeEditor";
 import { toast } from "sonner";
 import { VoiceRecorder } from "./VoiceRecorder";
 import { PropActionPopup } from "./PropActionPopup";
+import { AudioFilterPanel } from "./AudioFilterPanel";
 
 // Color system
 const TYPE_COLORS: Record<"audio" | "video", { from: string; to: string; glow: string; text: string; dot: string }> = {
@@ -106,6 +108,7 @@ export function Timeline() {
     removePathFromTrack,
     updateTrack,
     reorderTracks,
+    removeAudioFiltersFromTrack,
   } = useEditorStore();
 
   const timelineRef = useRef<HTMLDivElement>(null);
@@ -440,6 +443,7 @@ export function Timeline() {
   };
 
   const [showVoiceRecorder, setShowVoiceRecorder] = useState(false);
+  const [audioFilterPanel, setAudioFilterPanel] = useState<{ trackId: string; trackName: string } | null>(null);
   const [trimDialog, setTrimDialog] = useState<{ trackId: string; startTime: number; endTime: number } | null>(null);
 
   const handleOpenTrimDialog = () => {
@@ -765,6 +769,11 @@ export function Timeline() {
                 {track.type === "audio" && <Music className="w-3 h-3 flex-shrink-0 opacity-70" style={{ color: c.text }} />}
                 {track.type === "video" && <Video className="w-3 h-3 flex-shrink-0 opacity-70" style={{ color: c.text }} />}
                 {track.pathAnimation && <Route className="w-3 h-3 flex-shrink-0 opacity-80" style={{ color: "#c4b5fd" }} />}
+                {track.type === "audio" && ((track.audioFilterKeys?.length ?? 0) + (track.audioCleaningKeys?.length ?? 0) > 0) && (
+                  <span title="Filters applied">
+                    <Wand2 className="w-3 h-3 flex-shrink-0" style={{ color: "#a78bfa" }} />
+                  </span>
+                )}
 
                 <div className="flex-1 overflow-hidden">
                   <span
@@ -786,6 +795,31 @@ export function Timeline() {
                         className="w-16 h-1 accent-purple-400 bg-gray-700 rounded-full appearance-none"
                       />
                     </div>
+                  )}
+                  {/* Remove Filters button — shown only when selected audio track has filters */}
+                  {isSelected && track.type === "audio" && ((track.audioFilterKeys?.length ?? 0) + (track.audioCleaningKeys?.length ?? 0) > 0) && (
+                    <button
+                      onClick={(e) => { e.stopPropagation(); removeAudioFiltersFromTrack(track.id); }}
+                      title="Remove all applied filters"
+                      style={{
+                        marginTop: 3,
+                        display: "flex",
+                        alignItems: "center",
+                        gap: 3,
+                        fontSize: 9,
+                        fontWeight: 700,
+                        color: "#f87171",
+                        background: "rgba(239,68,68,0.1)",
+                        border: "1px solid rgba(239,68,68,0.3)",
+                        borderRadius: 4,
+                        padding: "2px 6px",
+                        cursor: "pointer",
+                        letterSpacing: "0.03em",
+                      }}
+                    >
+                      <Wand2 style={{ width: 8, height: 8 }} />
+                      Remove Filters ({(track.audioFilterKeys?.length ?? 0) + (track.audioCleaningKeys?.length ?? 0)})
+                    </button>
                   )}
                   {isSelected && (track.fabricObject as any)?.customType === "prop" && (
                     <button

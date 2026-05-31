@@ -61,6 +61,10 @@ export interface TrackSlice {
   commitCharacterPathAction: (trackId: string, travelAnim: string, arrivalBehavior: "keep" | "idle") => void;
   commitCharacterSequenceAction: (trackId: string, steps: import("../../types").SequenceStep[]) => void;
 
+  // Audio post-processing
+  applyAudioFiltersToTrack: (trackId: string, cleaningKeys: string[], filterKeys: string[], processedBlob: Blob) => void;
+  removeAudioFiltersFromTrack: (trackId: string) => void;
+
   // Clear everything
   clearCanvas: () => void;
 }
@@ -826,6 +830,76 @@ export const createTrackSlice: StateCreator<EditorState, [], [], TrackSlice> = (
       ),
     }));
   },   
+
+  applyAudioFiltersToTrack: (trackId, cleaningKeys, filterKeys, processedBlob) => {
+    const processedUrl = URL.createObjectURL(processedBlob);
+    const track = get().tracks.find(t => t.id === trackId);
+
+    // Revoke previous processed URL to avoid memory leaks
+    if (track?.processedAudioSrc) {
+      try { URL.revokeObjectURL(track.processedAudioSrc); } catch {}
+    }
+
+    // Replace the audio element source with the processed blob
+    const newAudio = new Audio(processedUrl);
+    newAudio.preload = "auto";
+    newAudio.crossOrigin = "anonymous";
+
+    if (track?.audioElement) {
+      track.audioElement.pause();
+      track.audioElement.src = "";
+    }
+
+    set((state) => ({
+      tracks: state.tracks.map(t =>
+        t.id === trackId
+          ? {
+              ...t,
+              audioFilterKeys: filterKeys,
+              audioCleaningKeys: cleaningKeys,
+              processedAudioSrc: processedUrl,
+              audioElement: newAudio,
+            }
+          : t
+      ),
+    }));
+  },
+
+  removeAudioFiltersFromTrack: (trackId) => {
+    const track = get().tracks.find(t => t.id === trackId);
+    if (!track) return;
+
+    // Revoke processed URL
+    if (track.processedAudioSrc) {
+      try { URL.revokeObjectURL(track.processedAudioSrc); } catch {}
+    }
+
+    // Restore original audio
+    const originalSrc = track.audioSrc || "";
+    const restoredAudio = originalSrc ? new Audio(originalSrc) : null;
+    if (restoredAudio) {
+      restoredAudio.preload = "auto";
+      restoredAudio.crossOrigin = "anonymous";
+    }
+    if (track.audioElement) {
+      track.audioElement.pause();
+      track.audioElement.src = "";
+    }
+
+    set((state) => ({
+      tracks: state.tracks.map(t =>
+        t.id === trackId
+          ? {
+              ...t,
+              audioFilterKeys: [],
+              audioCleaningKeys: [],
+              processedAudioSrc: null,
+              audioElement: restoredAudio,
+            }
+          : t
+      ),
+    }));
+  },
 
   syncAudioPlayback: () => {
     const { tracks, currentTime, isPlaying } = get();

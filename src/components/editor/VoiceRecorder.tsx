@@ -287,6 +287,7 @@ function audioBufferToWavBlob(buffer: AudioBuffer): Promise<Blob> {
 export function VoiceRecorder() {
   const [recordingState, setRecordingState] = useState<RecordingState>("idle");
   const [recordingTime, setRecordingTime]   = useState(0);
+  const [activeTab, setActiveTab] = useState<"cleaning" | "effects">("cleaning");
 
   const [rawBlob, setRawBlob]               = useState<Blob | null>(null);
   const [previewBlob, setPreviewBlob]       = useState<Blob | null>(null);
@@ -634,226 +635,200 @@ export function VoiceRecorder() {
     `${String(Math.floor(s / 60)).padStart(2, "0")}:${String(s % 60).padStart(2, "0")}`;
 
   return (
-    <div className="w-full max-w-2xl bg-background border border-panel-border rounded-xl p-4 text-foreground grid grid-cols-1 md:grid-cols-12 gap-4">
-      
-      {/* LEFT COLUMN: Main Capture and Player Controls */}
-      <div className="md:col-span-5 flex flex-col gap-3 justify-between">
-        <div className="space-y-3">
-          <div className="flex items-center gap-2 text-muted-foreground">
-            <Mic className="w-4 h-4" />
-            <span className="text-xs font-medium uppercase tracking-wide">Voice Input</span>
+    <div className="w-full bg-background border border-panel-border rounded-xl p-3 flex flex-col gap-3 text-foreground">
+
+      {/* ── TOP: Waveform + controls ── */}
+      <div className="flex items-center gap-3">
+        {/* Waveform + timer stacked */}
+        <div className="flex-1 bg-secondary/30 border border-panel-border rounded-lg px-3 py-2 flex flex-col gap-1.5">
+          {/* Waveform */}
+          <div className="h-8 flex items-center gap-0.5 rounded bg-black/20 overflow-hidden px-1.5">
+            {recordingState === "recording" && waveformData.length > 0 ? (
+              waveformData.slice(0, 28).map((v, i) => (
+                <div key={i} className="flex-1 rounded-full bg-red-400 transition-all duration-75"
+                  style={{ height: `${Math.max(8, v * 100)}%`, minWidth: 2 }} />
+              ))
+            ) : isRecordedOrProcessing ? (
+              Array.from({ length: 28 }).map((_, i) => (
+                <div key={i} className="flex-1 rounded-full transition-all duration-75"
+                  style={{
+                    height: `${20 + ((i * 37 + 13) % 65)}%`,
+                    minWidth: 2,
+                    background: isPreviewPlaying
+                      ? `hsl(${270 + i * 3}, 80%, ${50 + ((i * 7) % 20)}%)`
+                      : "rgb(167,139,250)",
+                  }} />
+              ))
+            ) : (
+              Array.from({ length: 28 }).map((_, i) => (
+                <div key={i} className="flex-1 rounded-full bg-white/10" style={{ height: "20%", minWidth: 2 }} />
+              ))
+            )}
           </div>
 
-          <div className="bg-secondary/30 rounded-lg p-3 space-y-3 border border-panel-border">
-            {/* Waveform Visualization Box */}
-            <div className="h-12 flex items-center justify-center gap-0.5 rounded-md bg-black/20 overflow-hidden px-2">
-              {recordingState === "recording" && waveformData.length > 0 ? (
-                waveformData.slice(0, 24).map((v, i) => (
-                  <div
-                    key={i}
-                    className="flex-1 rounded-full bg-red-400 transition-all duration-75"
-                    style={{ height: `${Math.max(8, v * 100)}%`, minWidth: 2 }}
-                  />
-                ))
-              ) : isRecordedOrProcessing ? (
-                Array.from({ length: 24 }).map((_, i) => (
-                  <div
-                    key={i}
-                    className="flex-1 rounded-full transition-all duration-75"
-                    style={{
-                      height: `${20 + ((i * 37 + 13) % 65)}%`,
-                      minWidth: 2,
-                      background: isPreviewPlaying
-                        ? `hsl(${270 + i * 3}, 80%, ${50 + ((i * 7) % 20)}%)`
-                        : "rgb(167,139,250)",
-                      transform: isPreviewPlaying ? `scaleY(${0.6 + Math.sin(i * 0.8 + Date.now() / 200) * 0.4})` : "none",
-                    }}
-                  />
-                ))
-              ) : (
-                Array.from({ length: 24 }).map((_, i) => (
-                  <div key={i} className="flex-1 rounded-full bg-white/10" style={{ height: "20%", minWidth: 2 }} />
-                ))
-              )}
+          {/* Progress bar */}
+          {isRecordedOrProcessing && (
+            <div className="w-full h-0.5 bg-white/10 rounded-full overflow-hidden">
+              <div className="h-full rounded-full bg-purple-400 transition-all duration-75"
+                style={{ width: `${previewProgress * 100}%` }} />
             </div>
+          )}
 
-            {/* Timeline Progress Bar indicator */}
-            {isRecordedOrProcessing && (
-              <div className="w-full h-1 bg-white/10 rounded-full overflow-hidden">
-                <div
-                  className="h-full rounded-full bg-purple-400 transition-all duration-75"
-                  style={{ width: `${previewProgress * 100}%` }}
-                />
-              </div>
+          {/* Timer */}
+          <div className="flex items-center justify-center gap-1.5">
+            <span className={`text-sm font-mono font-bold tabular-nums ${recordingState === "recording" ? "text-red-400" : "text-foreground"}`}>
+              {formatTime(recordingTime)}
+            </span>
+            {recordingState === "recording" && (
+              <span className="text-[10px] text-red-400 animate-pulse font-medium">● REC</span>
             )}
-
-            {/* Live Counter Display */}
-            <div className="text-center">
-              <span className={`text-lg font-mono font-bold ${recordingState === "recording" ? "text-red-400" : "text-foreground"}`}>
-                {formatTime(recordingTime)}
-              </span>
-              {recordingState === "recording" && (
-                <span className="ml-2 text-xs text-red-400 animate-pulse">● REC</span>
-              )}
-            </div>
-
-            {/* Recording Controls Footer Buttons */}
-            <div className="flex items-center gap-2">
-              {recordingState === "idle" && (
-                <Button size="sm" className="w-full bg-red-500 hover:bg-red-600 text-white gap-1.5" onClick={startRecording}>
-                  <Mic className="w-3.5 h-3.5" /> Record
-                </Button>
-              )}
-
-              {recordingState === "recording" && (
-                <Button size="sm" className="w-full bg-red-500 hover:bg-red-600 text-white gap-1.5" onClick={stopRecording}>
-                  <Square className="w-3.5 h-3.5 fill-current" /> Stop Recording
-                </Button>
-              )}
-
-              {isRecordedOrProcessing && (
-                <>
-                  <Button
-                    size="sm"
-                    variant="outline"
-                    className="flex-1 gap-1.5 border-panel-border"
-                    onClick={togglePreview}
-                    disabled={isCurrentlyProcessing}
-                  >
-                    {isPreviewPlaying ? <MicOff className="w-3.5 h-3.5" /> : <Play className="w-3.5 h-3.5" />}
-                    {isPreviewPlaying ? "Pause" : "Preview"}
-                  </Button>
-                  <Button size="sm" variant="ghost" className="text-red-400 hover:text-red-300 px-2" onClick={discardRecording}>
-                    <Trash2 className="w-3.5 h-3.5" />
-                  </Button>
-                </>
-              )}
-            </div>
           </div>
         </div>
 
-        {/* Master Append Trigger action button */}
-        {recordingState === "recorded" && (
-          <Button 
-            onClick={applyToTimeline} 
-            className="w-full bg-purple-600 hover:bg-purple-700 text-white gap-1.5 text-xs font-bold py-5 mt-auto"
-          >
-            Add Track to Timeline
-          </Button>
-        )}
-      </div>
-
-      {/* RIGHT COLUMN: Scrollable Options & Filter Scroller Configuration Layout */}
-      <div className="md:col-span-7 flex flex-col border-l border-panel-border md:pl-4">
-        <div className="flex items-center justify-between text-xs text-muted-foreground pb-2 border-b border-panel-border">
-          <span className="flex items-center gap-1.5 font-semibold text-foreground">
-            <Sliders className="w-3.5 h-3.5" /> Audio Workspace
-          </span>
+        {/* Action buttons column */}
+        <div className="flex flex-col gap-1.5 shrink-0">
+          {recordingState === "idle" && (
+            <Button size="sm" className="bg-red-500 hover:bg-red-600 text-white gap-1 text-xs px-3" onClick={startRecording}>
+              <Mic className="w-3.5 h-3.5" /> Record
+            </Button>
+          )}
+          {recordingState === "recording" && (
+            <Button size="sm" className="bg-red-500 hover:bg-red-600 text-white gap-1 text-xs px-3" onClick={stopRecording}>
+              <Square className="w-3.5 h-3.5 fill-current" /> Stop
+            </Button>
+          )}
           {isRecordedOrProcessing && (
-            <span className="text-[10px] text-purple-400 font-bold flex items-center gap-1">
-              <Sparkles className="w-3 h-3" /> Auto Preview Enabled
-            </span>
+            <>
+              <Button size="sm" variant="outline" className="gap-1 border-panel-border text-xs px-3"
+                onClick={togglePreview} disabled={isCurrentlyProcessing}>
+                {isPreviewPlaying ? <MicOff className="w-3.5 h-3.5" /> : <Play className="w-3.5 h-3.5" />}
+                {isPreviewPlaying ? "Pause" : "Play"}
+              </Button>
+              <Button size="sm" variant="ghost" className="text-red-400 hover:text-red-300 gap-1 text-xs px-3"
+                onClick={discardRecording}>
+                <Trash2 className="w-3.5 h-3.5" /> Discard
+              </Button>
+            </>
+          )}
+          {recordingState === "recorded" && (
+            <Button size="sm" onClick={applyToTimeline}
+              className="bg-purple-600 hover:bg-purple-700 text-white gap-1 text-xs px-3">
+              <Check className="w-3.5 h-3.5" /> Add
+            </Button>
           )}
         </div>
+      </div>
 
-        {/* SIDE / VERTICAL SCROLLER CONTAINER */}
-        <div 
-          className={`flex-1 flex flex-col gap-4 max-h-[260px] overflow-y-auto pr-1 mt-3 transition-opacity duration-200 ${
-            recordingState === "idle" || recordingState === "recording" ? "opacity-30 pointer-events-none" : ""
-          }`}
-          style={{ scrollbarWidth: "thin" }}
-        >
-          {/* Cleaning Group */}
-          <div className="space-y-2">
-            <div className="flex items-center gap-1.5 text-xs text-muted-foreground sticky top-0 bg-background py-1 z-10">
-              <Wand2 className="w-3.5 h-3.5" />
-              <span className="font-semibold text-xs">Audio Cleaning Profiles</span>
-            </div>
-            <div className="space-y-1.5">
+      {/* ── BOTTOM: Tabbed workspace ── */}
+      <div className={`flex flex-col border border-panel-border rounded-lg overflow-hidden transition-opacity duration-200 ${
+        recordingState === "idle" || recordingState === "recording" ? "opacity-40 pointer-events-none" : ""
+      }`}>
+        {/* Tab bar */}
+        <div className="flex border-b border-panel-border">
+          <button
+            onClick={() => setActiveTab("cleaning")}
+            className={`flex-1 flex items-center justify-center gap-1.5 py-1.5 text-[11px] font-semibold transition-colors ${
+              activeTab === "cleaning"
+                ? "bg-secondary/40 text-foreground border-b-2 border-green-500"
+                : "text-muted-foreground hover:text-foreground hover:bg-secondary/20"
+            }`}
+          >
+            <Wand2 className="w-3 h-3" /> Cleaning
+            {activeCleaningOptions.length > 0 && (
+              <span className="bg-green-500/20 text-green-400 text-[9px] font-bold px-1 rounded-full">
+                {activeCleaningOptions.length}
+              </span>
+            )}
+          </button>
+          <button
+            onClick={() => setActiveTab("effects")}
+            className={`flex-1 flex items-center justify-center gap-1.5 py-1.5 text-[11px] font-semibold transition-colors border-l border-panel-border ${
+              activeTab === "effects"
+                ? "bg-secondary/40 text-foreground border-b-2 border-purple-500"
+                : "text-muted-foreground hover:text-foreground hover:bg-secondary/20"
+            }`}
+          >
+            <Sliders className="w-3 h-3" /> Effects
+            {activeFilters.length > 0 && (
+              <span className="bg-purple-500/20 text-purple-400 text-[9px] font-bold px-1 rounded-full">
+                {activeFilters.length}
+              </span>
+            )}
+          </button>
+        </div>
+
+        {/* Tab content */}
+        <div className="p-2 max-h-[160px] overflow-y-auto" style={{ scrollbarWidth: "thin" }}>
+          {activeTab === "cleaning" && (
+            <div className="flex flex-col gap-1">
               {AUDIO_CLEANING_OPTIONS.map(opt => {
                 const active = activeCleaningOptions.includes(opt.key);
                 return (
-                  <button
-                    key={opt.key}
-                    disabled={isCurrentlyProcessing}
+                  <button key={opt.key} disabled={isCurrentlyProcessing}
                     onClick={() => toggleOption(opt.key, "cleaning")}
-                    className={`w-full flex items-center justify-between px-3 py-2 rounded-lg text-xs transition-all border ${
+                    className={`w-full flex items-center justify-between px-2.5 py-2 rounded-lg text-xs transition-all border ${
                       active
-                        ? "bg-green-500/10 border-green-500/40 text-green-400 shadow-sm"
+                        ? "bg-green-500/10 border-green-500/40 text-green-400"
                         : "bg-secondary/20 border-panel-border text-muted-foreground hover:text-foreground hover:border-foreground/20"
                     }`}
                   >
                     <div className="text-left">
-                      <div className="font-semibold text-xs">{opt.label}</div>
-                      <div className="text-[10px] opacity-75 mt-0.5">{opt.description}</div>
+                      <div className="font-semibold text-xs leading-tight">{opt.label}</div>
+                      <div className="text-[10px] opacity-70 mt-0.5 leading-tight">{opt.description}</div>
                     </div>
-                    {active && <Check className="w-3.5 h-3.5 text-green-400 shrink-0" />}
+                    {active && <Check className="w-3.5 h-3.5 text-green-400 shrink-0 ml-2" />}
                   </button>
                 );
               })}
             </div>
-          </div>
-
-          {/* Sound Effects Filter Presets Group */}
-          <div className="space-y-2">
-            <div className="flex items-center gap-1.5 text-xs text-muted-foreground sticky top-0 bg-background py-1 z-10">
-              <Sliders className="w-3.5 h-3.5" />
-              <span className="font-semibold text-xs">Voice Modification Effects</span>
-            </div>
-            <div className="grid grid-cols-2 gap-2">
+          )}
+          {activeTab === "effects" && (
+            <div className="grid grid-cols-2 gap-1.5">
               {AUDIO_FILTER_OPTIONS.map(opt => {
                 const active = activeFilters.includes(opt.key);
                 return (
-                  <button
-                    key={opt.key}
-                    disabled={isCurrentlyProcessing}
+                  <button key={opt.key} disabled={isCurrentlyProcessing}
                     onClick={() => toggleOption(opt.key, "filter")}
-                    className={`px-3 py-2.5 rounded-lg text-xs text-left transition-all border flex flex-col justify-between ${
+                    className={`px-2.5 py-2 rounded-lg text-xs text-left transition-all border flex flex-col gap-0.5 ${
                       active
-                        ? "bg-purple-500/10 border-purple-500/40 text-purple-300 shadow-sm"
+                        ? "bg-purple-500/10 border-purple-500/40 text-purple-300"
                         : "bg-secondary/20 border-panel-border text-muted-foreground hover:text-foreground hover:border-foreground/20"
                     }`}
                   >
-                    <div className="font-semibold flex items-center justify-between w-full">
-                      <span className="text-xs">{opt.label}</span>
+                    <div className="flex items-center justify-between w-full">
+                      <span className="font-semibold text-xs leading-tight">{opt.label}</span>
                       {active && <Check className="w-3 h-3 text-purple-400 shrink-0" />}
                     </div>
-                    <div className="text-[10px] opacity-75 mt-1 leading-tight">{opt.description}</div>
+                    <div className="text-[10px] opacity-70 leading-tight">{opt.description}</div>
                   </button>
                 );
               })}
             </div>
-          </div>
+          )}
         </div>
 
-        {/* Dedicated Dynamic Apply Filter Button Section */}
+        {/* Status bar */}
         {isRecordedOrProcessing && (
-          <div className="mt-4 pt-3 border-t border-panel-border">
-            <button
-              onClick={commitFilters}
-              disabled={!hasActiveOptions || isCurrentlyProcessing}
-              className={`w-full flex items-center justify-center gap-1.5 py-2 rounded-lg text-xs font-bold transition-all border ${
+          <div className="border-t border-panel-border px-2.5 py-1.5">
+            <button onClick={commitFilters} disabled={!hasActiveOptions || isCurrentlyProcessing}
+              className={`w-full flex items-center justify-center gap-1.5 py-1 rounded text-[11px] font-semibold transition-all ${
                 isCurrentlyProcessing
-                  ? "bg-secondary/40 border-panel-border text-muted-foreground opacity-60 cursor-not-allowed"
+                  ? "text-muted-foreground opacity-60 cursor-not-allowed"
                   : needsApply
-                  ? "bg-amber-500/20 border-amber-500/40 text-amber-300 hover:bg-amber-500/30 cursor-pointer"
+                  ? "bg-amber-500/15 text-amber-300 hover:bg-amber-500/25 cursor-pointer rounded-md"
                   : hasActiveOptions
-                  ? "bg-green-500/10 border-green-500/30 text-green-400 cursor-default"
-                  : "bg-secondary/40 border-panel-border text-muted-foreground opacity-40 cursor-not-allowed"
+                  ? "text-green-400 cursor-default"
+                  : "text-muted-foreground opacity-40 cursor-not-allowed"
               }`}
             >
               {isCurrentlyProcessing ? (
-                <>
-                  <Loader2 className="w-3.5 h-3.5 animate-spin" /> Processing Effect...
-                </>
+                <><Loader2 className="w-3 h-3 animate-spin" /> Processing…</>
               ) : needsApply ? (
-                <>Apply Filter Changes</>
+                <>Apply Changes</>
               ) : hasActiveOptions ? (
-                <>
-                  <Check className="w-3.5 h-3.5" /> Changes Applied Successfully
-                </>
+                <><Check className="w-3 h-3" /> Applied</>
               ) : (
-                <>Select Options Above to Preview</>
+                <><Sparkles className="w-3 h-3" /> Select options to preview</>
               )}
             </button>
           </div>

@@ -9,9 +9,10 @@ import {
   Copy,
   ClipboardPaste,
   Scissors,
-  CopyPlus, // Changed to CopyPlus for better visual distinction
+  CopyPlus,
   RotateCw,
   Image,
+  Wand2,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 
@@ -20,9 +21,10 @@ interface ContextMenuProps {
   y: number;
   onClose: () => void;
   onSetAsBackground?: () => void;
+  onOpenAudioFilters?: () => void;
 }
 
-export function ContextMenu({ x, y, onClose, onSetAsBackground }: ContextMenuProps) {
+export function ContextMenu({ x, y, onClose, onSetAsBackground, onOpenAudioFilters }: ContextMenuProps) {
   const menuRef = useRef<HTMLDivElement>(null);
   
   // 1. Destructure necessary store actions
@@ -194,6 +196,16 @@ export function ContextMenu({ x, y, onClose, onSetAsBackground }: ContextMenuPro
             icon={<CopyPlus className="w-4 h-4" />}
             label="Duplicate"
             onClick={handleDuplicate}
+          />
+          <div className="h-px bg-gray-700 my-1 mx-2" />
+          <MenuItem
+            icon={<Wand2 className="w-4 h-4 text-purple-400" />}
+            label="Filters / Clean"
+            onClick={() => {
+              onOpenAudioFilters?.();
+              onClose();
+            }}
+            className="text-purple-300 hover:bg-purple-900/20"
           />
           <div className="h-px bg-gray-700 my-1 mx-2" />
         </>

@@ -16,6 +16,7 @@ import {
 import * as PIXI from "pixi.js";
 import { useEditorStore, type Asset } from "@/stores/editorStore";
 import { ContextMenu } from "./ContextMenu";
+import { AudioFilterPanel } from "./AudioFilterPanel";
 import { PathDrawOverlay } from "./PathDrawOverlay";
 import { PropActionPopup } from "./PropActionPopup";
 import { BackgroundCropModal } from "./BackgroundCropModal";
@@ -40,6 +41,7 @@ export function CanvasEditor() {
 
   // ── Background crop modal state ──────────────────────────────────────────
   const [bgCropTarget, setBgCropTarget] = useState<HTMLImageElement | null>(null);
+  const [audioFilterPanel, setAudioFilterPanel] = useState<{ trackId: string; trackName: string } | null>(null);
 
 
   const {
@@ -1495,6 +1497,11 @@ export function CanvasEditor() {
           x={contextMenu.x}
           y={contextMenu.y}
           onClose={() => setContextMenu({ visible: false, x: 0, y: 0 })}
+          onOpenAudioFilters={() => {
+            const store = useEditorStore.getState();
+            const track = store.tracks.find(t => t.id === store.selectedObjectId);
+            if (track) setAudioFilterPanel({ trackId: track.id, trackName: track.name });
+          }}
           onSetAsBackground={() => {
             const store = useEditorStore.getState();
             const obj = store.selectedObject;
@@ -1516,6 +1523,15 @@ export function CanvasEditor() {
               }
             }
           }}
+        />
+      )}
+
+      {/* Audio Filter Panel */}
+      {audioFilterPanel && (
+        <AudioFilterPanel
+          trackId={audioFilterPanel.trackId}
+          trackName={audioFilterPanel.trackName}
+          onClose={() => setAudioFilterPanel(null)}
         />
       )}
 
