@@ -1,18 +1,8 @@
 /**
  * CharacterPathPopup
  *
- * Two-stage popup that appears after a path is drawn on a character:
- *
- * Stage 1 — "Travel" popup:
- *   Shows categorized animation picker (5 groups).
- *   Only Locomotion animations (Idle, walk, run, jump) are shown as travel options
- *   since other animations don't make sense for path travel.
- *   Always offers "Sequence Builder" to open the advanced choreography popup.
- *
- * Stage 2 — "Arrival" popup:
- *   After the user picks a travel animation, ask what to do when the
- *   character reaches the end of the path.
- *   Options: "Keep [anim]" or "Return to Idle"
+ * Two-stage popup that appears after a path is drawn on a character.
+ * Only shows: Idle, Walk, Run, Jump, Sit animations.
  */
 
 import { useState, useEffect } from "react";
@@ -32,98 +22,30 @@ interface Props {
   onSequenceBuilder: () => void;
 }
 
-/* ─── Animation metadata ─────────────────────────────────────────────────── */
+/* ─── Animation metadata (only 5 animations) ────────────────────────────── */
 
-const ANIM_META: Record<CharacterAnimName, { label: string; icon: string; color: string }> = {
-  // Locomotion
-  Idle:           { label: "Idle",          icon: "🧍", color: "#6366f1" },
-  walk:           { label: "Walk",          icon: "🚶", color: "#22c55e" },
-  run:            { label: "Run",           icon: "🏃", color: "#f97316" },
-  jump:           { label: "Jump",          icon: "🦘", color: "#ec4899" },
-  // Morning / Rest
-  yawn:           { label: "Yawn",          icon: "🥱", color: "#f59e0b" },
-  stretch:        { label: "Stretch",       icon: "🙆", color: "#f59e0b" },
-  rub_eyes:       { label: "Rub Eyes",      icon: "😴", color: "#f59e0b" },
-  swing_legs_out: { label: "Swing Legs",    icon: "🛏️", color: "#f59e0b" },
-  put_on_shirt:   { label: "Put On Shirt",  icon: "👕", color: "#f59e0b" },
-  // Activity
-  flip_food:      { label: "Flip Food",     icon: "🍳", color: "#10b981" },
-  eat:            { label: "Eat",           icon: "🍽️", color: "#10b981" },
-  drink:          { label: "Drink",         icon: "☕", color: "#10b981" },
-  wipe_table:     { label: "Wipe Table",    icon: "🧹", color: "#10b981" },
-  read_book:      { label: "Read Book",     icon: "📖", color: "#10b981" },
-  look_up:        { label: "Look Up",       icon: "👀", color: "#10b981" },
-  desk_stretch:   { label: "Desk Stretch",  icon: "💺", color: "#10b981" },
-  pick_up_box:    { label: "Pick Up Box",   icon: "📦", color: "#10b981" },
-  // Posture
-  sit_down:       { label: "Sit Down",      icon: "🪑", color: "#8b5cf6" },
-  cross_legs:     { label: "Cross Legs",    icon: "🧘", color: "#8b5cf6" },
-  sit_idle:       { label: "Sit Idle",      icon: "😌", color: "#8b5cf6" },
-  lay_down:       { label: "Lay Down",      icon: "🛌", color: "#8b5cf6" },
-  pull_blanket:   { label: "Pull Blanket",  icon: "🛏️", color: "#8b5cf6" },
-  fall_asleep:    { label: "Fall Asleep",   icon: "💤", color: "#8b5cf6" },
-  // Social
-  handshake:      { label: "Handshake",     icon: "🤝", color: "#e879f9" },
-  wave:           { label: "Wave",          icon: "👋", color: "#e879f9" },
-  point:          { label: "Point",         icon: "👉", color: "#e879f9" },
-  nod:            { label: "Nod",           icon: "🙂", color: "#e879f9" },
-  shake_head:     { label: "Shake Head",    icon: "🙅", color: "#e879f9" },
+const ANIM_META: Record<string, { label: string; icon: string; color: string }> = {
+  Idle:     { label: "Idle", icon: "🧍", color: "#6366f1" },
+  walk:     { label: "Walk", icon: "🚶", color: "#22c55e" },
+  run:      { label: "Run",  icon: "🏃", color: "#f97316" },
+  jump:     { label: "Jump", icon: "🦘", color: "#ec4899" },
+  sit_idle: { label: "Sit",  icon: "🪑", color: "#8b5cf6" },
 };
 
-type AnimCategory = {
-  id: string;
-  label: string;
-  color: string;
-  anims: CharacterAnimName[];
-};
-
-const CATEGORIES: AnimCategory[] = [
-  {
-    id: "locomotion",
-    label: "Move",
-    color: "#6366f1",
-    anims: ["Idle", "walk", "run", "jump"],
-  },
-  {
-    id: "morning",
-    label: "Morning",
-    color: "#f59e0b",
-    anims: ["yawn", "stretch", "rub_eyes", "swing_legs_out", "put_on_shirt"],
-  },
-  {
-    id: "activity",
-    label: "Activity",
-    color: "#10b981",
-    anims: ["flip_food", "eat", "drink", "wipe_table", "read_book", "look_up", "desk_stretch", "pick_up_box"],
-  },
-  {
-    id: "posture",
-    label: "Posture",
-    color: "#8b5cf6",
-    anims: ["sit_down", "cross_legs", "sit_idle", "lay_down", "pull_blanket", "fall_asleep"],
-  },
-  {
-    id: "social",
-    label: "Social",
-    color: "#e879f9",
-    anims: ["handshake", "wave", "point", "nod", "shake_head"],
-  },
-];
+const ALLOWED_ANIMS: CharacterAnimName[] = ["Idle", "walk", "run", "jump", "sit_idle"];
 
 /* ─── Component ──────────────────────────────────────────────────────────── */
 
 export function CharacterPathPopup({ trackId, pathEndPoint, canvasEl, onClose, onSequenceBuilder }: Props) {
   const { tracks, commitCharacterPathAction } = useEditorStore();
 
-  const [stage, setStage]             = useState<"travel" | "arrival">("travel");
+  const [stage, setStage]               = useState<"travel" | "arrival">("travel");
   const [chosenTravel, setChosenTravel] = useState<CharacterAnimName>("walk");
-  const [activeCategory, setActiveCategory] = useState<string>("locomotion");
-  const [pos, setPos]                 = useState<PopupPosition | null>(null);
+  const [pos, setPos]                   = useState<PopupPosition | null>(null);
 
   const track       = tracks.find((t) => t.id === trackId);
   const currentAnim = (track?.characterAnimation ?? "Idle") as CharacterAnimName;
 
-  // Map canvas coords → screen coords
   useEffect(() => {
     if (!pathEndPoint || !canvasEl) return;
     const rect   = canvasEl.getBoundingClientRect();
@@ -143,8 +65,7 @@ export function CharacterPathPopup({ trackId, pathEndPoint, canvasEl, onClose, o
 
   if (!pos) return null;
 
-  const currentCategory = CATEGORIES.find((c) => c.id === activeCategory)!;
-  const meta = ANIM_META[currentAnim];
+  const meta = ANIM_META[currentAnim] ?? ANIM_META["Idle"];
 
   const handleTravelChoice = (anim: CharacterAnimName) => {
     setChosenTravel(anim);
@@ -198,46 +119,15 @@ export function CharacterPathPopup({ trackId, pathEndPoint, canvasEl, onClose, o
               </p>
             </div>
 
-            {/* Category tabs */}
-            <div style={{
-              display: "flex", gap: 4, marginBottom: 10,
-              overflowX: "auto", paddingBottom: 2,
-            }}>
-              {CATEGORIES.map((cat) => {
-                const isActive = cat.id === activeCategory;
-                return (
-                  <button
-                    key={cat.id}
-                    onClick={() => setActiveCategory(cat.id)}
-                    style={{
-                      flexShrink:   0,
-                      padding:      "4px 10px",
-                      borderRadius: 20,
-                      border:       `1.5px solid ${isActive ? cat.color : "rgba(255,255,255,0.08)"}`,
-                      background:   isActive ? `${cat.color}22` : "transparent",
-                      color:        isActive ? cat.color : "#64748b",
-                      fontSize:     11,
-                      fontWeight:   isActive ? 700 : 400,
-                      cursor:       "pointer",
-                      transition:   "all 0.15s",
-                      whiteSpace:   "nowrap",
-                    }}
-                  >
-                    {cat.label}
-                  </button>
-                );
-              })}
-            </div>
-
-            {/* Animation grid for current category */}
+            {/* Animation grid */}
             <div style={{
               display: "grid",
-              gridTemplateColumns: "repeat(4, 1fr)",
+              gridTemplateColumns: "repeat(5, 1fr)",
               gap: 6,
               marginBottom: 10,
             }}>
-              {currentCategory.anims.map((anim) => {
-                const m        = ANIM_META[anim];
+              {ALLOWED_ANIMS.map((anim) => {
+                const m         = ANIM_META[anim];
                 const isCurrent = anim === currentAnim;
                 return (
                   <button
@@ -245,20 +135,20 @@ export function CharacterPathPopup({ trackId, pathEndPoint, canvasEl, onClose, o
                     onClick={() => handleTravelChoice(anim)}
                     title={m.label}
                     style={{
-                      position:      "relative",
-                      display:       "flex",
-                      flexDirection: "column",
-                      alignItems:    "center",
-                      justifyContent:"center",
-                      gap:           3,
-                      padding:       "8px 4px",
-                      borderRadius:  10,
-                      border:        isCurrent
+                      position:       "relative",
+                      display:        "flex",
+                      flexDirection:  "column",
+                      alignItems:     "center",
+                      justifyContent: "center",
+                      gap:            3,
+                      padding:        "8px 4px",
+                      borderRadius:   10,
+                      border:         isCurrent
                         ? `1.5px solid ${m.color}aa`
                         : `1.5px solid ${m.color}33`,
-                      background:    isCurrent ? `${m.color}22` : `${m.color}0d`,
-                      cursor:        "pointer",
-                      transition:    "all 0.14s",
+                      background:     isCurrent ? `${m.color}22` : `${m.color}0d`,
+                      cursor:         "pointer",
+                      transition:     "all 0.14s",
                     }}
                     onMouseEnter={(e) => {
                       const el = e.currentTarget as HTMLElement;
@@ -284,12 +174,12 @@ export function CharacterPathPopup({ trackId, pathEndPoint, canvasEl, onClose, o
                     )}
                     <span style={{ fontSize: 18, lineHeight: 1 }}>{m.icon}</span>
                     <span style={{
-                      fontSize:   9, fontWeight: 600,
-                      color:      m.color, textAlign: "center",
-                      lineHeight: 1.2,
-                      overflow:   "hidden",
-                      maxWidth:   "100%",
-                      whiteSpace: "nowrap",
+                      fontSize:     9, fontWeight: 600,
+                      color:        m.color, textAlign: "center",
+                      lineHeight:   1.2,
+                      overflow:     "hidden",
+                      maxWidth:     "100%",
+                      whiteSpace:   "nowrap",
                       textOverflow: "ellipsis",
                     }}>
                       {m.label}
@@ -362,7 +252,7 @@ export function CharacterPathPopup({ trackId, pathEndPoint, canvasEl, onClose, o
           /* ── Arrival stage ─────────────────────────────────────────── */
           <>
             {(() => {
-              const tm = ANIM_META[chosenTravel];
+              const tm = ANIM_META[chosenTravel] ?? ANIM_META["Idle"];
               return (
                 <>
                   <div style={{ marginBottom: 12 }}>

@@ -1,12 +1,8 @@
 /**
  * CharacterSequencePopup
  *
- * Advanced "Sequence Builder" popup. Redesigned to handle all 26 animations
- * (4 original + 22 new) organized into 5 categories:
- *   Locomotion · Morning/Rest · Activity · Posture · Social
- *
- * Step rows feature a compact category-tabbed mini-picker so users can
- * browse all animations without the UI becoming congested.
+ * Sequence Builder popup. Shows only 5 animations:
+ *   Idle · Walk · Run · Jump · Sit
  */
 
 import { useState, useEffect, useCallback, useRef } from "react";
@@ -21,76 +17,20 @@ interface Props {
   onBack: () => void;
 }
 
-/* ─── Animation metadata ─────────────────────────────────────────────────── */
+/* ─── Animation metadata (5 animations only) ────────────────────────────── */
 
-const ANIM_META: Record<CharacterAnimName, { label: string; icon: string; color: string }> = {
-  Idle:           { label: "Idle",         icon: "🧍", color: "#6366f1" },
-  walk:           { label: "Walk",         icon: "🚶", color: "#22c55e" },
-  run:            { label: "Run",          icon: "🏃", color: "#f97316" },
-  jump:           { label: "Jump",         icon: "🦘", color: "#ec4899" },
-  yawn:           { label: "Yawn",         icon: "🥱", color: "#f59e0b" },
-  stretch:        { label: "Stretch",      icon: "🙆", color: "#f59e0b" },
-  rub_eyes:       { label: "Rub Eyes",     icon: "😴", color: "#f59e0b" },
-  swing_legs_out: { label: "Swing Legs",   icon: "🛏️", color: "#f59e0b" },
-  put_on_shirt:   { label: "Put On Shirt", icon: "👕", color: "#f59e0b" },
-  flip_food:      { label: "Flip Food",    icon: "🍳", color: "#10b981" },
-  eat:            { label: "Eat",          icon: "🍽️", color: "#10b981" },
-  drink:          { label: "Drink",        icon: "☕", color: "#10b981" },
-  wipe_table:     { label: "Wipe Table",   icon: "🧹", color: "#10b981" },
-  read_book:      { label: "Read Book",    icon: "📖", color: "#10b981" },
-  look_up:        { label: "Look Up",      icon: "👀", color: "#10b981" },
-  desk_stretch:   { label: "Desk Stretch", icon: "💺", color: "#10b981" },
-  pick_up_box:    { label: "Pick Up Box",  icon: "📦", color: "#10b981" },
-  sit_down:       { label: "Sit Down",     icon: "🪑", color: "#8b5cf6" },
-  cross_legs:     { label: "Cross Legs",   icon: "🧘", color: "#8b5cf6" },
-  sit_idle:       { label: "Sit Idle",     icon: "😌", color: "#8b5cf6" },
-  lay_down:       { label: "Lay Down",     icon: "🛌", color: "#8b5cf6" },
-  pull_blanket:   { label: "Pull Blanket", icon: "🛏️", color: "#8b5cf6" },
-  fall_asleep:    { label: "Fall Asleep",  icon: "💤", color: "#8b5cf6" },
-  handshake:      { label: "Handshake",    icon: "🤝", color: "#e879f9" },
-  wave:           { label: "Wave",         icon: "👋", color: "#e879f9" },
-  point:          { label: "Point",        icon: "👉", color: "#e879f9" },
-  nod:            { label: "Nod",          icon: "🙂", color: "#e879f9" },
-  shake_head:     { label: "Shake Head",   icon: "🙅", color: "#e879f9" },
+const ANIM_META: Record<string, { label: string; icon: string; color: string }> = {
+  Idle:     { label: "Idle", icon: "🧍", color: "#6366f1" },
+  walk:     { label: "Walk", icon: "🚶", color: "#22c55e" },
+  run:      { label: "Run",  icon: "🏃", color: "#f97316" },
+  jump:     { label: "Jump", icon: "🦘", color: "#ec4899" },
+  sit_idle: { label: "Sit",  icon: "🪑", color: "#8b5cf6" },
 };
 
-type AnimCategory = {
-  id: string;
-  label: string;
-  shortLabel: string;
-  color: string;
-  anims: CharacterAnimName[];
-};
-
-const CATEGORIES: AnimCategory[] = [
-  {
-    id: "locomotion", label: "Locomotion", shortLabel: "Move", color: "#6366f1",
-    anims: ["Idle", "walk", "run", "jump"],
-  },
-  {
-    id: "morning", label: "Morning", shortLabel: "Morning", color: "#f59e0b",
-    anims: ["yawn", "stretch", "rub_eyes", "swing_legs_out", "put_on_shirt"],
-  },
-  {
-    id: "activity", label: "Activity", shortLabel: "Activity", color: "#10b981",
-    anims: ["flip_food", "eat", "drink", "wipe_table", "read_book", "look_up", "desk_stretch", "pick_up_box"],
-  },
-  {
-    id: "posture", label: "Posture", shortLabel: "Posture", color: "#8b5cf6",
-    anims: ["sit_down", "cross_legs", "sit_idle", "lay_down", "pull_blanket", "fall_asleep"],
-  },
-  {
-    id: "social", label: "Social", shortLabel: "Social", color: "#e879f9",
-    anims: ["handshake", "wave", "point", "nod", "shake_head"],
-  },
-];
+const ALLOWED_ANIMS: CharacterAnimName[] = ["Idle", "walk", "run", "jump", "sit_idle"];
 
 // Animations that move along the path
 const MOVING_ANIMS: CharacterAnimName[] = ["walk", "run", "jump"];
-
-function getCategoryForAnim(anim: CharacterAnimName): AnimCategory {
-  return CATEGORIES.find((c) => (c.anims as string[]).includes(anim)) ?? CATEGORIES[0];
-}
 
 function uid() {
   return Math.random().toString(36).slice(2, 9);
@@ -113,7 +53,6 @@ function distributePathSegments(steps: SequenceStep[]): SequenceStep[] {
 }
 
 /* ─── AnimPicker ─────────────────────────────────────────────────────────── */
-// Inline mini-picker shown inside each StepRow when the user clicks the anim chip
 
 interface AnimPickerProps {
   current: CharacterAnimName;
@@ -122,9 +61,6 @@ interface AnimPickerProps {
 }
 
 function AnimPicker({ current, onSelect, onClose }: AnimPickerProps) {
-  const [tab, setTab] = useState<string>(() => getCategoryForAnim(current).id);
-  const cat = CATEGORIES.find((c) => c.id === tab)!;
-
   return (
     <div
       onClick={(e) => e.stopPropagation()}
@@ -138,41 +74,13 @@ function AnimPicker({ current, onSelect, onClose }: AnimPickerProps) {
         backdropFilter: "blur(16px)",
       }}
     >
-      {/* Category tabs */}
-      <div style={{ display: "flex", gap: 4, marginBottom: 8, overflowX: "auto", paddingBottom: 2 }}>
-        {CATEGORIES.map((c) => {
-          const isActive = c.id === tab;
-          return (
-            <button
-              key={c.id}
-              onClick={() => setTab(c.id)}
-              style={{
-                flexShrink:   0,
-                padding:      "3px 9px",
-                borderRadius: 20,
-                border:       `1.5px solid ${isActive ? c.color : "rgba(255,255,255,0.07)"}`,
-                background:   isActive ? `${c.color}1e` : "transparent",
-                color:        isActive ? c.color : "#4b5563",
-                fontSize:     10,
-                fontWeight:   isActive ? 700 : 400,
-                cursor:       "pointer",
-                transition:   "all 0.12s",
-                whiteSpace:   "nowrap",
-              }}
-            >
-              {c.shortLabel}
-            </button>
-          );
-        })}
-      </div>
-
       {/* Animation grid */}
       <div style={{
         display:             "grid",
-        gridTemplateColumns: `repeat(${Math.min(cat.anims.length, 4)}, 1fr)`,
+        gridTemplateColumns: "repeat(5, 1fr)",
         gap:                 5,
       }}>
-        {cat.anims.map((anim) => {
+        {ALLOWED_ANIMS.map((anim) => {
           const m    = ANIM_META[anim];
           const isSel = anim === current;
           return (
@@ -181,20 +89,20 @@ function AnimPicker({ current, onSelect, onClose }: AnimPickerProps) {
               onClick={() => { onSelect(anim); onClose(); }}
               title={m.label}
               style={{
-                display:       "flex",
-                flexDirection: "column",
-                alignItems:    "center",
-                justifyContent:"center",
-                gap:           2,
-                padding:       "7px 4px",
-                borderRadius:  8,
-                border:        isSel
+                display:        "flex",
+                flexDirection:  "column",
+                alignItems:     "center",
+                justifyContent: "center",
+                gap:            2,
+                padding:        "7px 4px",
+                borderRadius:   8,
+                border:         isSel
                   ? `1.5px solid ${m.color}cc`
                   : `1.5px solid ${m.color}28`,
-                background:    isSel ? `${m.color}22` : `${m.color}0a`,
-                cursor:        "pointer",
-                transition:    "all 0.12s",
-                position:      "relative",
+                background:     isSel ? `${m.color}22` : `${m.color}0a`,
+                cursor:         "pointer",
+                transition:     "all 0.12s",
+                position:       "relative",
               }}
               onMouseEnter={(e) => {
                 const el = e.currentTarget as HTMLElement;
@@ -247,7 +155,7 @@ interface StepRowProps {
 
 function StepRow({ step, index, total, onChange, onRemove, onMoveUp, onMoveDown }: StepRowProps) {
   const [pickerOpen, setPickerOpen] = useState(false);
-  const meta     = ANIM_META[step.animation];
+  const meta     = ANIM_META[step.animation] ?? ANIM_META["Idle"];
   const isMoving = MOVING_ANIMS.includes(step.animation);
   const color    = meta.color;
 
@@ -255,14 +163,14 @@ function StepRow({ step, index, total, onChange, onRemove, onMoveUp, onMoveDown 
     <div style={{ display: "flex", flexDirection: "column" }}>
       <div
         style={{
-          display:     "flex",
-          alignItems:  "center",
-          gap:         8,
-          padding:     "8px 10px",
+          display:      "flex",
+          alignItems:   "center",
+          gap:          8,
+          padding:      "8px 10px",
           borderRadius: pickerOpen ? "10px 10px 0 0" : 10,
-          border:      `1.5px solid ${pickerOpen ? color + "66" : color + "28"}`,
-          background:  pickerOpen ? `${color}18` : `${color}0a`,
-          transition:  "all 0.15s",
+          border:       `1.5px solid ${pickerOpen ? color + "66" : color + "28"}`,
+          background:   pickerOpen ? `${color}18` : `${color}0a`,
+          transition:   "all 0.15s",
         }}
       >
         {/* Step badge */}
@@ -274,7 +182,7 @@ function StepRow({ step, index, total, onChange, onRemove, onMoveUp, onMoveDown 
           {index + 1}
         </div>
 
-        {/* Animation chip — click to open picker */}
+        {/* Animation chip */}
         <button
           onClick={() => setPickerOpen((v) => !v)}
           title="Click to change animation"
@@ -311,15 +219,15 @@ function StepRow({ step, index, total, onChange, onRemove, onMoveUp, onMoveDown 
             }}
             onClick={(e) => e.stopPropagation()}
             style={{
-              width:      52,
-              padding:    "3px 6px",
+              width:        52,
+              padding:      "3px 6px",
               borderRadius: 6,
-              border:     "1px solid rgba(255,255,255,0.12)",
-              background: "rgba(255,255,255,0.05)",
-              color:      "#e2e8f0",
-              fontSize:   12,
-              textAlign:  "center",
-              outline:    "none",
+              border:       "1px solid rgba(255,255,255,0.12)",
+              background:   "rgba(255,255,255,0.05)",
+              color:        "#e2e8f0",
+              fontSize:     12,
+              textAlign:    "center",
+              outline:      "none",
             }}
           />
           <span style={{ color: "#475569", fontSize: 10, flexShrink: 0 }}>s</span>
@@ -388,10 +296,10 @@ function StepRow({ step, index, total, onChange, onRemove, onMoveUp, onMoveDown 
       {/* Inline picker */}
       {pickerOpen && (
         <div style={{
-          border:         `1.5px solid ${color}44`,
-          borderTop:      "none",
-          borderRadius:   "0 0 10px 10px",
-          overflow:       "hidden",
+          border:     `1.5px solid ${color}44`,
+          borderTop:  "none",
+          borderRadius: "0 0 10px 10px",
+          overflow:   "hidden",
         }}>
           <AnimPicker
             current={step.animation}
@@ -411,9 +319,6 @@ interface QuickAddBarProps {
 }
 
 function QuickAddBar({ onAdd }: QuickAddBarProps) {
-  const [tab, setTab] = useState<string>("locomotion");
-  const cat = CATEGORIES.find((c) => c.id === tab)!;
-
   return (
     <div style={{
       background:   "rgba(255,255,255,0.025)",
@@ -428,37 +333,8 @@ function QuickAddBar({ onAdd }: QuickAddBarProps) {
       }}>
         Add Step
       </div>
-      {/* Category tabs */}
-      <div style={{ display: "flex", gap: 4, marginBottom: 7, overflowX: "auto" }}>
-        {CATEGORIES.map((c) => {
-          const isActive = c.id === tab;
-          return (
-            <button
-              key={c.id}
-              onClick={() => setTab(c.id)}
-              style={{
-                flexShrink:   0,
-                padding:      "3px 8px",
-                borderRadius: 20,
-                border:       `1.5px solid ${isActive ? c.color : "rgba(255,255,255,0.06)"}`,
-                background:   isActive ? `${c.color}1a` : "transparent",
-                color:        isActive ? c.color : "#374151",
-                fontSize:     10,
-                fontWeight:   isActive ? 700 : 400,
-                cursor:       "pointer",
-                transition:   "all 0.12s",
-                whiteSpace:   "nowrap",
-              }}
-            >
-              {c.shortLabel}
-            </button>
-          );
-        })}
-      </div>
-
-      {/* Animation chips */}
       <div style={{ display: "flex", flexWrap: "wrap", gap: 5 }}>
-        {cat.anims.map((anim) => {
+        {ALLOWED_ANIMS.map((anim) => {
           const m = ANIM_META[anim];
           return (
             <button
@@ -466,18 +342,18 @@ function QuickAddBar({ onAdd }: QuickAddBarProps) {
               onClick={() => onAdd(anim)}
               title={`Add ${m.label} step`}
               style={{
-                display:     "flex",
-                alignItems:  "center",
-                gap:         4,
-                padding:     "4px 8px",
+                display:      "flex",
+                alignItems:   "center",
+                gap:          4,
+                padding:      "4px 8px",
                 borderRadius: 8,
-                border:      `1.5px solid ${m.color}33`,
-                background:  `${m.color}0d`,
-                color:       m.color,
-                fontSize:    10,
-                cursor:      "pointer",
-                transition:  "all 0.12s",
-                fontWeight:  500,
+                border:       `1.5px solid ${m.color}33`,
+                background:   `${m.color}0d`,
+                color:        m.color,
+                fontSize:     10,
+                cursor:       "pointer",
+                transition:   "all 0.12s",
+                fontWeight:   500,
               }}
               onMouseEnter={(e) => {
                 const el = e.currentTarget as HTMLElement;
@@ -659,7 +535,6 @@ function PathSegmentViz({ steps, onSplitChange }: PathSegVizProps) {
         ))}
       </div>
 
-      {/* Segment legend */}
       <div style={{
         display: "flex", flexWrap: "wrap", gap: 8, marginTop: 8,
         padding: "8px 10px",
@@ -686,7 +561,6 @@ export function CharacterSequencePopup({ trackId, pathEndPoint, canvasEl, onClos
   const { tracks, commitCharacterSequenceAction, updateTrack } = useEditorStore();
   const track = tracks.find((t) => t.id === trackId);
 
-  // If there's a path, default to a walk sequence. Otherwise default to stationary.
   const hasPath = !!(track?.pathAnimation && track.pathAnimation.points.length > 1);
 
   const [steps, setSteps] = useState<SequenceStep[]>(() =>
@@ -698,14 +572,14 @@ export function CharacterSequencePopup({ trackId, pathEndPoint, canvasEl, onClos
         ])
       : [
           { id: uid(), animation: "Idle", duration: 2 },
-          { id: uid(), animation: "wave", duration: 3 },
+          { id: uid(), animation: "walk", duration: 3 },
           { id: uid(), animation: "Idle", duration: 1 },
         ]
   );
 
-  const [pos, setPos]             = useState<{ screenX: number; screenY: number } | null>(null);
+  const [pos, setPos]               = useState<{ screenX: number; screenY: number } | null>(null);
   const [dragOffset, setDragOffset] = useState<{ x: number; y: number } | null>(null);
-  const popupRef                  = useRef<HTMLDivElement>(null);
+  const popupRef                    = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     if (!pathEndPoint || !canvasEl) return;
@@ -741,8 +615,6 @@ export function CharacterSequencePopup({ trackId, pathEndPoint, canvasEl, onClos
     document.addEventListener("mousemove", onMove);
     document.addEventListener("mouseup", onUp);
   };
-
-  /* ── Step mutations ── */
 
   const handleChange = useCallback((id: string, updates: Partial<SequenceStep>) => {
     setSteps((prev) => distributePathSegments(
@@ -797,7 +669,6 @@ export function CharacterSequencePopup({ trackId, pathEndPoint, canvasEl, onClos
     });
   }, []);
 
-  /* ── Apply ── */
   const totalDuration = steps.reduce((acc, s) => acc + s.duration, 0);
 
   const handleApply = () => {
@@ -808,7 +679,6 @@ export function CharacterSequencePopup({ trackId, pathEndPoint, canvasEl, onClos
 
   if (!pos) return null;
 
-  /* ── Timeline preview ── */
   const TimelinePreview = () => (
     <div style={{
       display: "flex", height: 18, borderRadius: 6, overflow: "hidden",
@@ -816,26 +686,26 @@ export function CharacterSequencePopup({ trackId, pathEndPoint, canvasEl, onClos
     }}>
       {steps.map((s) => {
         const pct   = (s.duration / Math.max(totalDuration, 0.01)) * 100;
-        const color = ANIM_META[s.animation].color;
+        const color = (ANIM_META[s.animation] ?? ANIM_META["Idle"]).color;
         return (
           <div
             key={s.id}
-            title={`${ANIM_META[s.animation].label} · ${s.duration}s`}
+            title={`${(ANIM_META[s.animation] ?? ANIM_META["Idle"]).label} · ${s.duration}s`}
             style={{
-              width:       `${pct}%`,
-              background:  `${color}28`,
-              borderRight: "1px solid rgba(255,255,255,0.06)",
-              display:     "flex",
-              alignItems:  "center",
+              width:          `${pct}%`,
+              background:     `${color}28`,
+              borderRight:    "1px solid rgba(255,255,255,0.06)",
+              display:        "flex",
+              alignItems:     "center",
               justifyContent: "center",
-              fontSize:    10,
+              fontSize:       10,
               color,
-              transition:  "width 0.1s",
-              flexShrink:  0,
-              overflow:    "hidden",
+              transition:     "width 0.1s",
+              flexShrink:     0,
+              overflow:       "hidden",
             }}
           >
-            {pct > 7 ? ANIM_META[s.animation].icon : ""}
+            {pct > 7 ? (ANIM_META[s.animation] ?? ANIM_META["Idle"]).icon : ""}
           </div>
         );
       })}
@@ -956,21 +826,21 @@ export function CharacterSequencePopup({ trackId, pathEndPoint, canvasEl, onClos
           <button
             onClick={handleApply}
             style={{
-              flex:         1,
-              padding:      "9px 14px",
-              borderRadius: 9,
-              border:       "1.5px solid rgba(99,102,241,0.5)",
-              background:   "linear-gradient(135deg, rgba(99,102,241,0.22) 0%, rgba(168,85,247,0.18) 100%)",
-              color:        "#c7d2fe",
-              fontSize:     12,
-              fontWeight:   700,
-              cursor:       "pointer",
-              display:      "flex",
-              alignItems:   "center",
+              flex:           1,
+              padding:        "9px 14px",
+              borderRadius:   9,
+              border:         "1.5px solid rgba(99,102,241,0.5)",
+              background:     "linear-gradient(135deg, rgba(99,102,241,0.22) 0%, rgba(168,85,247,0.18) 100%)",
+              color:          "#c7d2fe",
+              fontSize:       12,
+              fontWeight:     700,
+              cursor:         "pointer",
+              display:        "flex",
+              alignItems:     "center",
               justifyContent: "center",
-              gap:          6,
-              transition:   "all 0.15s",
-              letterSpacing: "0.01em",
+              gap:            6,
+              transition:     "all 0.15s",
+              letterSpacing:  "0.01em",
             }}
             onMouseEnter={(e) => {
               const el = e.currentTarget as HTMLElement;

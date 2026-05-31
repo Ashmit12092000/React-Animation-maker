@@ -465,9 +465,12 @@ export function Timeline() {
           </button>
           <button
             onClick={handlePlay}
+            disabled={tracks.length === 0}
             className={cn(
               "h-7 min-w-[80px] flex items-center justify-center gap-1.5 rounded-md text-xs font-semibold transition-all px-3",
-              isPlaying
+              tracks.length === 0
+                ? "bg-white/5 text-gray-600 border border-white/5 cursor-not-allowed opacity-50"
+                : isPlaying
                 ? "bg-red-500/20 text-red-400 hover:bg-red-500/30 border border-red-500/30"
                 : "bg-emerald-500/20 text-emerald-400 hover:bg-emerald-500/30 border border-emerald-500/30",
             )}
@@ -944,91 +947,332 @@ export function Timeline() {
       </div>
 
       {/* Trim Dialog */}
-      {trimDialog && (
-        <div className="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center z-50">
+      {trimDialog && (() => {
+        const originalStart = selectedTrack?.startTime ?? 0;
+        const originalEnd   = selectedTrack?.endTime   ?? trimDialog.endTime;
+        const trimmedDur    = trimDialog.endTime - trimDialog.startTime;
+        const originalDur   = originalEnd - originalStart;
+        const pctStart      = originalDur > 0 ? ((trimDialog.startTime - originalStart) / originalDur) * 100 : 0;
+        const pctEnd        = originalDur > 0 ? ((trimDialog.endTime   - originalStart) / originalDur) * 100 : 100;
+        const isValid       = trimDialog.startTime < trimDialog.endTime;
+
+        const nudge = (field: "startTime" | "endTime", delta: number) => {
+          setTrimDialog((prev) => {
+            if (!prev) return prev;
+            const raw = parseFloat((prev[field] + delta).toFixed(2));
+            if (field === "startTime") {
+              const clamped = Math.max(0, Math.min(raw, prev.endTime - 0.1));
+              return { ...prev, startTime: clamped };
+            } else {
+              const clamped = Math.max(prev.startTime + 0.1, raw);
+              return { ...prev, endTime: clamped };
+            }
+          });
+        };
+
+        const handleRawInput = (field: "startTime" | "endTime", raw: string) => {
+          // Allow free typing — only parse & clamp on blur
+          setTrimDialog((prev) => prev ? { ...prev, [field]: raw as any } : prev);
+        };
+
+        const handleBlur = (field: "startTime" | "endTime", raw: string) => {
+          const val = parseFloat(raw);
+          if (isNaN(val)) {
+            // revert to last good value
+            setTrimDialog((prev) => prev ? { ...prev } : prev);
+            return;
+          }
+          setTrimDialog((prev) => {
+            if (!prev) return prev;
+            if (field === "startTime") {
+              const clamped = Math.max(0, Math.min(val, prev.endTime - 0.1));
+              return { ...prev, startTime: parseFloat(clamped.toFixed(2)) };
+            } else {
+              const clamped = Math.max((prev.startTime as number) + 0.1, val);
+              return { ...prev, endTime: parseFloat(clamped.toFixed(2)) };
+            }
+          });
+        };
+
+        const inputStyle: React.CSSProperties = {
+          flex: 1,
+          padding: "8px 10px",
+          borderRadius: 8,
+          border: "1.5px solid rgba(139,92,246,0.35)",
+          background: "rgba(139,92,246,0.08)",
+          color: "#e2e8f0",
+          fontSize: 15,
+          fontWeight: 600,
+          fontFamily: "monospace",
+          outline: "none",
+          textAlign: "center",
+          minWidth: 0,
+          transition: "border-color 0.15s",
+        };
+
+        const nudgeBtnStyle = (side: "left" | "right"): React.CSSProperties => ({
+          width: 34,
+          height: 38,
+          display: "flex",
+          alignItems: "center",
+          justifyContent: "center",
+          borderRadius: side === "left" ? "8px 0 0 8px" : "0 8px 8px 0",
+          border: "1.5px solid rgba(139,92,246,0.25)",
+          borderRight: side === "left" ? "none" : "1.5px solid rgba(139,92,246,0.25)",
+          borderLeft: side === "right" ? "none" : "1.5px solid rgba(139,92,246,0.25)",
+          background: "rgba(139,92,246,0.1)",
+          color: "#a78bfa",
+          fontSize: 16,
+          cursor: "pointer",
+          userSelect: "none",
+          flexShrink: 0,
+          transition: "background 0.12s",
+        });
+
+        return (
           <div
-            className="rounded-lg shadow-2xl border p-6 w-96"
-            style={{
-              background: "linear-gradient(180deg, #0f1117 0%, #0a0d14 100%)",
-              borderColor: "rgba(255,255,255,0.1)",
-            }}
+            className="fixed inset-0 flex items-center justify-center z-50"
+            style={{ backgroundColor: "rgba(0,0,0,0.65)", backdropFilter: "blur(4px)" }}
+            onClick={() => setTrimDialog(null)}
           >
-            <h3 className="text-lg font-bold text-white mb-4">Trim Track</h3>
-
-            <div className="space-y-4">
-              {/* Start Time */}
-              <div>
-                <label className="text-xs font-semibold text-gray-400 block mb-2">Start Time (seconds)</label>
-                <input
-                  type="number"
-                  min={0}
-                  max={trimDialog.endTime - 0.1}
-                  step={0.1}
-                  value={trimDialog.startTime.toFixed(2)}
-                  onChange={(e) => setTrimDialog({ ...trimDialog, startTime: parseFloat(e.target.value) || 0 })}
-                  className="w-full px-3 py-2 rounded-md border border-purple-500/30 bg-purple-500/10 text-white focus:border-purple-500/60 focus:ring-2 focus:ring-purple-500/30 outline-none transition-all"
-                />
-                <div className="text-[10px] text-gray-500 mt-1">
-                  Track starts at: {selectedTrack?.startTime.toFixed(2)}s
-                </div>
-              </div>
-
-              {/* End Time */}
-              <div>
-                <label className="text-xs font-semibold text-gray-400 block mb-2">End Time (seconds)</label>
-                <input
-                  type="number"
-                  min={trimDialog.startTime + 0.1}
-                  max={selectedTrack?.endTime || 999}
-                  step={0.1}
-                  value={trimDialog.endTime.toFixed(2)}
-                  onChange={(e) => setTrimDialog({ ...trimDialog, endTime: parseFloat(e.target.value) || trimDialog.endTime })}
-                  className="w-full px-3 py-2 rounded-md border border-purple-500/30 bg-purple-500/10 text-white focus:border-purple-500/60 focus:ring-2 focus:ring-purple-500/30 outline-none transition-all"
-                />
-                <div className="text-[10px] text-gray-500 mt-1">
-                  Track ends at: {selectedTrack?.endTime.toFixed(2)}s
-                </div>
-              </div>
-
-              {/* Duration Preview */}
-              <div className="bg-purple-500/10 border border-purple-500/20 rounded-md p-3">
-                <div className="text-xs font-semibold text-purple-400 mb-2">Duration Preview</div>
-                <div className="flex items-center gap-3 text-sm">
+            <div
+              onClick={(e) => e.stopPropagation()}
+              style={{
+                background: "linear-gradient(180deg, #0f1117 0%, #0a0d14 100%)",
+                border: "1px solid rgba(255,255,255,0.1)",
+                borderRadius: 16,
+                padding: "24px 24px 20px",
+                width: 400,
+                boxShadow: "0 24px 64px rgba(0,0,0,0.8), 0 0 0 1px rgba(139,92,246,0.2)",
+              }}
+            >
+              {/* Header */}
+              <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 20 }}>
+                <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+                  <span style={{
+                    width: 32, height: 32, borderRadius: 8,
+                    background: "rgba(139,92,246,0.15)",
+                    border: "1px solid rgba(139,92,246,0.3)",
+                    display: "flex", alignItems: "center", justifyContent: "center",
+                    fontSize: 15,
+                  }}>✂️</span>
                   <div>
-                    <span className="text-gray-400">Original: </span>
-                    <span className="text-white font-mono">
-                      {(selectedTrack?.endTime || 0).toFixed(2)}s
-                    </span>
-                  </div>
-                  <div className="text-gray-600">→</div>
-                  <div>
-                    <span className="text-gray-400">Trimmed: </span>
-                    <span className="text-purple-300 font-mono">
-                      {(trimDialog.endTime - trimDialog.startTime).toFixed(2)}s
-                    </span>
+                    <div style={{ color: "#e2e8f0", fontSize: 14, fontWeight: 700 }}>Trim Track</div>
+                    <div style={{ color: "#64748b", fontSize: 10, marginTop: 1 }}>
+                      {selectedTrack?.name ?? "Selected track"}
+                    </div>
                   </div>
                 </div>
+                <button
+                  onClick={() => setTrimDialog(null)}
+                  style={{
+                    width: 26, height: 26, borderRadius: 6,
+                    border: "1px solid rgba(255,255,255,0.08)",
+                    background: "transparent", color: "#475569",
+                    fontSize: 12, cursor: "pointer", display: "flex",
+                    alignItems: "center", justifyContent: "center",
+                  }}
+                >✕</button>
               </div>
-            </div>
 
-            {/* Actions */}
-            <div className="flex gap-2 mt-6">
-              <button
-                onClick={() => setTrimDialog(null)}
-                className="flex-1 px-3 py-2 rounded-md border border-gray-600 text-gray-300 hover:bg-gray-600/20 transition-all text-sm font-medium"
-              >
-                Cancel
-              </button>
-              <button
-                onClick={() => handleTrimTrack(trimDialog.startTime, trimDialog.endTime)}
-                className="flex-1 px-3 py-2 rounded-md bg-purple-600 text-white hover:bg-purple-700 transition-all text-sm font-medium"
-              >
-                Apply Trim
-              </button>
+              {/* Visual bar */}
+              <div style={{ marginBottom: 20 }}>
+                <div style={{
+                  height: 28, borderRadius: 8, position: "relative",
+                  background: "rgba(255,255,255,0.04)",
+                  border: "1px solid rgba(255,255,255,0.07)",
+                  overflow: "hidden",
+                }}>
+                  {/* trimmed zone */}
+                  <div style={{
+                    position: "absolute",
+                    left: `${pctStart}%`,
+                    width: `${pctEnd - pctStart}%`,
+                    top: 0, bottom: 0,
+                    background: "linear-gradient(90deg, rgba(139,92,246,0.45), rgba(168,85,247,0.3))",
+                    borderLeft: "2px solid rgba(139,92,246,0.9)",
+                    borderRight: "2px solid rgba(168,85,247,0.9)",
+                  }}>
+                    <div style={{
+                      position: "absolute", inset: 0,
+                      display: "flex", alignItems: "center", justifyContent: "center",
+                      fontSize: 10, fontWeight: 700, color: "#c4b5fd",
+                      fontFamily: "monospace",
+                    }}>
+                      {trimmedDur.toFixed(2)}s
+                    </div>
+                  </div>
+                  {/* cut-off left */}
+                  {pctStart > 0 && (
+                    <div style={{
+                      position: "absolute", left: 0, top: 0, bottom: 0,
+                      width: `${pctStart}%`,
+                      background: "repeating-linear-gradient(45deg, rgba(255,0,0,0.06) 0px, rgba(255,0,0,0.06) 4px, transparent 4px, transparent 8px)",
+                    }} />
+                  )}
+                  {/* cut-off right */}
+                  {pctEnd < 100 && (
+                    <div style={{
+                      position: "absolute", right: 0, top: 0, bottom: 0,
+                      width: `${100 - pctEnd}%`,
+                      background: "repeating-linear-gradient(45deg, rgba(255,0,0,0.06) 0px, rgba(255,0,0,0.06) 4px, transparent 4px, transparent 8px)",
+                    }} />
+                  )}
+                </div>
+                <div style={{ display: "flex", justifyContent: "space-between", marginTop: 4, fontSize: 9, color: "#334155", fontFamily: "monospace" }}>
+                  <span>{originalStart.toFixed(2)}s</span>
+                  <span>{originalEnd.toFixed(2)}s</span>
+                </div>
+              </div>
+
+              {/* Inputs */}
+              <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
+                {/* Start Time */}
+                <div>
+                  <label style={{ fontSize: 10, fontWeight: 700, color: "#94a3b8", letterSpacing: "0.07em", textTransform: "uppercase", display: "block", marginBottom: 6 }}>
+                    Start Time
+                  </label>
+                  <div style={{ display: "flex", alignItems: "stretch" }}>
+                    <button
+                      style={nudgeBtnStyle("left")}
+                      onMouseDown={(e) => e.preventDefault()}
+                      onClick={() => nudge("startTime", -0.1)}
+                      title="-0.1s"
+                    >−</button>
+                    <input
+                      type="text"
+                      inputMode="decimal"
+                      style={inputStyle}
+                      value={typeof trimDialog.startTime === "number" ? trimDialog.startTime.toFixed !== undefined && Number.isFinite(trimDialog.startTime) ? trimDialog.startTime.toFixed(2) : String(trimDialog.startTime) : trimDialog.startTime}
+                      onChange={(e) => handleRawInput("startTime", e.target.value)}
+                      onBlur={(e) => handleBlur("startTime", e.target.value)}
+                      onFocus={(e) => e.target.select()}
+                      onKeyDown={(e) => {
+                        if (e.key === "ArrowUp")   { e.preventDefault(); nudge("startTime", +0.1); }
+                        if (e.key === "ArrowDown") { e.preventDefault(); nudge("startTime", -0.1); }
+                        if (e.key === "Enter")     { e.currentTarget.blur(); }
+                      }}
+                    />
+                    <button
+                      style={nudgeBtnStyle("right")}
+                      onMouseDown={(e) => e.preventDefault()}
+                      onClick={() => nudge("startTime", +0.1)}
+                      title="+0.1s"
+                    >+</button>
+                  </div>
+                  <div style={{ fontSize: 10, color: "#475569", marginTop: 5, display: "flex", gap: 10 }}>
+                    <span>Original: <span style={{ color: "#64748b", fontFamily: "monospace" }}>{originalStart.toFixed(2)}s</span></span>
+                    <span style={{ color: "#334155" }}>·</span>
+                    <span>↑↓ arrows or click ± to nudge by 0.1s</span>
+                  </div>
+                </div>
+
+                {/* End Time */}
+                <div>
+                  <label style={{ fontSize: 10, fontWeight: 700, color: "#94a3b8", letterSpacing: "0.07em", textTransform: "uppercase", display: "block", marginBottom: 6 }}>
+                    End Time
+                  </label>
+                  <div style={{ display: "flex", alignItems: "stretch" }}>
+                    <button
+                      style={nudgeBtnStyle("left")}
+                      onMouseDown={(e) => e.preventDefault()}
+                      onClick={() => nudge("endTime", -0.1)}
+                      title="-0.1s"
+                    >−</button>
+                    <input
+                      type="text"
+                      inputMode="decimal"
+                      style={inputStyle}
+                      value={typeof trimDialog.endTime === "number" ? trimDialog.endTime.toFixed !== undefined && Number.isFinite(trimDialog.endTime) ? trimDialog.endTime.toFixed(2) : String(trimDialog.endTime) : trimDialog.endTime}
+                      onChange={(e) => handleRawInput("endTime", e.target.value)}
+                      onBlur={(e) => handleBlur("endTime", e.target.value)}
+                      onFocus={(e) => e.target.select()}
+                      onKeyDown={(e) => {
+                        if (e.key === "ArrowUp")   { e.preventDefault(); nudge("endTime", +0.1); }
+                        if (e.key === "ArrowDown") { e.preventDefault(); nudge("endTime", -0.1); }
+                        if (e.key === "Enter")     { e.currentTarget.blur(); }
+                      }}
+                    />
+                    <button
+                      style={nudgeBtnStyle("right")}
+                      onMouseDown={(e) => e.preventDefault()}
+                      onClick={() => nudge("endTime", +0.1)}
+                      title="+0.1s"
+                    >+</button>
+                  </div>
+                  <div style={{ fontSize: 10, color: "#475569", marginTop: 5, display: "flex", gap: 10 }}>
+                    <span>Original: <span style={{ color: "#64748b", fontFamily: "monospace" }}>{originalEnd.toFixed(2)}s</span></span>
+                    <span style={{ color: "#334155" }}>·</span>
+                    <span>↑↓ arrows or click ± to nudge by 0.1s</span>
+                  </div>
+                </div>
+              </div>
+
+              {/* Summary row */}
+              <div style={{
+                marginTop: 16, padding: "10px 14px", borderRadius: 10,
+                background: isValid ? "rgba(139,92,246,0.08)" : "rgba(239,68,68,0.08)",
+                border: `1px solid ${isValid ? "rgba(139,92,246,0.2)" : "rgba(239,68,68,0.3)"}`,
+                display: "flex", alignItems: "center", justifyContent: "space-between",
+              }}>
+                {isValid ? (
+                  <>
+                    <div style={{ fontSize: 11, color: "#94a3b8" }}>
+                      <span style={{ color: "#64748b" }}>Original </span>
+                      <span style={{ fontFamily: "monospace", color: "#94a3b8" }}>{originalDur.toFixed(2)}s</span>
+                      <span style={{ color: "#475569", margin: "0 6px" }}>→</span>
+                      <span style={{ fontFamily: "monospace", color: "#c4b5fd", fontWeight: 700 }}>{trimmedDur.toFixed(2)}s</span>
+                    </div>
+                    <div style={{ fontSize: 10, color: "#7c3aed", background: "rgba(139,92,246,0.15)", borderRadius: 20, padding: "2px 8px", fontWeight: 600 }}>
+                      −{(originalDur - trimmedDur).toFixed(2)}s
+                    </div>
+                  </>
+                ) : (
+                  <div style={{ fontSize: 11, color: "#f87171", fontWeight: 600 }}>
+                    ⚠ Start time must be before end time
+                  </div>
+                )}
+              </div>
+
+              {/* Actions */}
+              <div style={{ display: "flex", gap: 8, marginTop: 16 }}>
+                <button
+                  onClick={() => setTrimDialog(null)}
+                  style={{
+                    flex: 1, padding: "9px 0", borderRadius: 9,
+                    border: "1px solid rgba(255,255,255,0.08)",
+                    background: "transparent", color: "#64748b",
+                    fontSize: 12, fontWeight: 600, cursor: "pointer", transition: "all 0.12s",
+                  }}
+                  onMouseEnter={(e) => (e.currentTarget as HTMLElement).style.color = "#94a3b8"}
+                  onMouseLeave={(e) => (e.currentTarget as HTMLElement).style.color = "#64748b"}
+                >
+                  Cancel
+                </button>
+                <button
+                  onClick={() => handleTrimTrack(trimDialog.startTime as number, trimDialog.endTime as number)}
+                  disabled={!isValid}
+                  style={{
+                    flex: 2, padding: "9px 0", borderRadius: 9,
+                    border: isValid ? "1.5px solid rgba(139,92,246,0.6)" : "1px solid rgba(255,255,255,0.05)",
+                    background: isValid
+                      ? "linear-gradient(135deg, rgba(139,92,246,0.35) 0%, rgba(168,85,247,0.25) 100%)"
+                      : "rgba(255,255,255,0.03)",
+                    color: isValid ? "#e2e8f0" : "#374151",
+                    fontSize: 12, fontWeight: 700, cursor: isValid ? "pointer" : "not-allowed",
+                    transition: "all 0.15s",
+                    display: "flex", alignItems: "center", justifyContent: "center", gap: 6,
+                  }}
+                  onMouseEnter={(e) => { if (isValid) { const el = e.currentTarget as HTMLElement; el.style.background = "linear-gradient(135deg, rgba(139,92,246,0.5) 0%, rgba(168,85,247,0.4) 100%)"; }}}
+                  onMouseLeave={(e) => { if (isValid) { const el = e.currentTarget as HTMLElement; el.style.background = "linear-gradient(135deg, rgba(139,92,246,0.35) 0%, rgba(168,85,247,0.25) 100%)"; }}}
+                >
+                  ✂️ Apply Trim
+                </button>
+              </div>
             </div>
           </div>
-        </div>
-      )}
+        );
+      })()}
 
       <KeyframeEditor />
 
