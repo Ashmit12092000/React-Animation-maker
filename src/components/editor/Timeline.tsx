@@ -105,6 +105,7 @@ export function Timeline() {
     setPathDrawMode,
     removePathFromTrack,
     updateTrack,
+    reorderTracks,
   } = useEditorStore();
 
   const timelineRef = useRef<HTMLDivElement>(null);
@@ -127,6 +128,38 @@ export function Timeline() {
     canvasEl: HTMLCanvasElement | null;
     propTrackId: string;
   } | null>(null);
+
+  // Track row drag-to-reorder state
+  const [draggingRowIndex, setDraggingRowIndex] = useState<number | null>(null);
+  const [dropTargetIndex, setDropTargetIndex] = useState<number | null>(null);
+
+  // Row reorder handlers
+  const handleRowDragStart = useCallback((e: React.DragEvent, index: number) => {
+    setDraggingRowIndex(index);
+    e.dataTransfer.effectAllowed = "move";
+    e.dataTransfer.setData("text/plain", String(index));
+  }, []);
+
+  const handleRowDragOver = useCallback((e: React.DragEvent, index: number) => {
+    e.preventDefault();
+    e.dataTransfer.dropEffect = "move";
+    setDropTargetIndex(index);
+  }, []);
+
+  const handleRowDrop = useCallback((e: React.DragEvent, toIndex: number) => {
+    e.preventDefault();
+    const fromIndex = draggingRowIndex;
+    if (fromIndex !== null && fromIndex !== toIndex) {
+      reorderTracks(fromIndex, toIndex);
+    }
+    setDraggingRowIndex(null);
+    setDropTargetIndex(null);
+  }, [draggingRowIndex, reorderTracks]);
+
+  const handleRowDragEnd = useCallback(() => {
+    setDraggingRowIndex(null);
+    setDropTargetIndex(null);
+  }, []);
 
   // Helper: open PropActionPopup for a prop track
   const openPropActions = useCallback((track: (typeof tracks)[0], e?: React.MouseEvent) => {
@@ -683,24 +716,51 @@ export function Timeline() {
             <div className="h-10 px-3 flex items-center text-xs text-gray-600">No tracks</div>
           )}
 
-          {tracks.map((track) => {
+          {tracks.map((track, trackIndex) => {
             const visualIdx = tracks.filter(t => t.type === "visual" && tracks.indexOf(t) <= tracks.indexOf(track)).length - 1;
             const c = getTrackColor(track, visualIdx);
             const isSelected = selectedObjectId === track.id;
+            const isDraggingThis = draggingRowIndex === trackIndex;
+            const isDropTarget = dropTargetIndex === trackIndex && draggingRowIndex !== null && draggingRowIndex !== trackIndex;
             return (
               <div
                 key={track.id}
+                draggable
+                onDragStart={(e) => handleRowDragStart(e, trackIndex)}
+                onDragOver={(e) => handleRowDragOver(e, trackIndex)}
+                onDrop={(e) => handleRowDrop(e, trackIndex)}
+                onDragEnd={handleRowDragEnd}
                 onClick={(e) => handleTrackClick(e, track)}
                 className="relative flex items-center gap-1.5 px-2 h-12 cursor-pointer transition-colors overflow-hidden"
                 style={{
-                  background: isSelected ? "rgba(255,255,255,0.06)" : undefined,
+                  background: isDropTarget
+                    ? "rgba(99,102,241,0.15)"
+                    : isSelected ? "rgba(255,255,255,0.06)" : undefined,
                   boxShadow: isSelected ? `inset 2px 0 0 ${c.dot}` : undefined,
-                  borderBottom: "1px solid rgba(255,255,255,0.035)",
+                  borderBottom: isDropTarget
+                    ? "2px solid rgba(99,102,241,0.8)"
+                    : "1px solid rgba(255,255,255,0.035)",
+                  opacity: isDraggingThis ? 0.4 : 1,
+                  transition: "opacity 0.15s, background 0.1s, border-color 0.1s",
                 }}
               >
                 {isSelected && (
                   <div className="absolute left-0 top-0 bottom-0 w-0.5" style={{ background: c.dot }} />
                 )}
+
+                {/* Drag handle */}
+                <div
+                  className="flex-shrink-0 flex flex-col gap-px cursor-grab active:cursor-grabbing"
+                  style={{ opacity: 0.35, padding: "0 1px" }}
+                  title="Drag to reorder track"
+                >
+                  {[0,1,2].map(i => (
+                    <div key={i} style={{ display: "flex", gap: 2 }}>
+                      <div style={{ width: 2, height: 2, borderRadius: "50%", background: "#9ca3af" }} />
+                      <div style={{ width: 2, height: 2, borderRadius: "50%", background: "#9ca3af" }} />
+                    </div>
+                  ))}
+                </div>
 
                 <div className="w-2 h-2 rounded-full flex-shrink-0" style={{ background: c.dot }} />
 

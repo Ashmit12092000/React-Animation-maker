@@ -303,7 +303,7 @@ export function AssetPanel() {
 
   const handleMediaUpload = (
     e: React.ChangeEvent<HTMLInputElement>,
-    type: "audio" | "video" | "image",
+    type: "audio" | "video" | "image" | "gif",
   ) => {
     const files = e.target.files;
     if (!files) return;
@@ -322,6 +322,8 @@ export function AssetPanel() {
         file.name.toLowerCase().endsWith(".jpeg");
       const isPng =
         file.type === "image/png" || file.name.toLowerCase().endsWith(".png");
+      const isGif =
+        file.type === "image/gif" || file.name.toLowerCase().endsWith(".gif");
 
       if (type === "audio" && isMp3) {
         // Create asset for library
@@ -344,6 +346,17 @@ export function AssetPanel() {
           src: url,
         };
         addUploadedAsset(asset);
+      } else if (type === "gif" && isGif) {
+        const asset = {
+          id: `gif-${Date.now()}-${index}`,
+          name: file.name,
+          type: "item" as const,
+          color: "",
+          icon: "🎞️",
+          src: url,
+          isGif: true,
+        };
+        addUploadedAsset(asset as Asset);
       } else if (type === "video" && isMp4) {
         // Create asset for library
         const asset: Asset = {
@@ -625,13 +638,25 @@ export function AssetPanel() {
             <div className="p-4 border-b border-panel-border">
               <h2 className="font-semibold text-foreground">Media</h2>
               <p className="text-xs text-muted-foreground mt-1">
-                Audio & Video tracks
+                Images, GIFs, Audio &amp; Video
               </p>
             </div>
 
             <div className="flex-1 overflow-y-auto p-4 space-y-6 custom-scrollbar">
               {/* Upload Buttons */}
               <div className="flex flex-col gap-2 mb-6">
+                <UploadButton
+                  label="Upload Image"
+                  icon={<ImageIcon className="w-5 h-5 text-emerald-400" />}
+                  accept=".png,.jpg,.jpeg"
+                  onChange={(e) => handleMediaUpload(e, "image")}
+                />
+                <UploadButton
+                  label="Upload GIF"
+                  icon={<span className="text-lg leading-none">🎞️</span>}
+                  accept=".gif,image/gif"
+                  onChange={(e) => handleMediaUpload(e, "gif")}
+                />
                 <UploadButton
                   label="Upload Audio"
                   icon={<Music className="w-5 h-5 text-purple-400" />}
@@ -647,6 +672,41 @@ export function AssetPanel() {
               </div>
 
               {/* Lists */}
+              {/* Images & GIFs Library */}
+              {uploadedAssets.filter(a => a.type === "item").length > 0 && (
+                <div>
+                  <h3 className="text-xs font-medium text-muted-foreground mb-2 uppercase tracking-wider">
+                    Images &amp; GIFs
+                  </h3>
+                  <div className="grid grid-cols-2 gap-2">
+                    {uploadedAssets.filter(a => a.type === "item").map((asset) => (
+                      <div
+                        key={asset.id}
+                        draggable
+                        onDragStart={(e) => handleDragStart(e, asset)}
+                        className="group relative aspect-square rounded-xl bg-secondary border border-panel-border hover:border-primary/50 cursor-grab active:cursor-grabbing overflow-hidden transition-all"
+                        title={`Drag to canvas · ${asset.name}`}
+                      >
+                        <img
+                          src={asset.src}
+                          alt={asset.name}
+                          className="w-full h-full object-cover"
+                          style={{ imageRendering: (asset as any).isGif ? "auto" : undefined }}
+                        />
+                        {(asset as any).isGif && (
+                          <div className="absolute top-1 left-1 bg-black/70 text-[9px] font-bold text-pink-300 px-1.5 py-0.5 rounded-full leading-none border border-pink-400/30">
+                            GIF
+                          </div>
+                        )}
+                        <div className="absolute inset-x-0 bottom-0 bg-black/60 p-1 translate-y-full group-hover:translate-y-0 transition-transform">
+                          <p className="text-[10px] text-white text-center truncate">{asset.name}</p>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+
               <div>
                 <h3 className="text-xs font-medium text-muted-foreground mb-2 uppercase tracking-wider">
                   Audio Library

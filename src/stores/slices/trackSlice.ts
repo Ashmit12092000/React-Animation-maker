@@ -40,6 +40,7 @@ export interface TrackSlice {
   updateTrack: (id: string, updates: Partial<TrackObject>) => void;
   removeTrack: (id: string) => void;
   splitTrack: (id: string) => void;
+  reorderTracks: (fromIndex: number, toIndex: number) => void;
 
   addKeyframeAtCurrentTime: (trackId: string) => void;
   updateKeyframe: (trackId: string, keyframeId: string, updates: Partial<Keyframe>) => void;
@@ -89,6 +90,14 @@ export const createTrackSlice: StateCreator<EditorState, [], [], TrackSlice> = (
     }),
 
   addTrack: (track) => set((state) => ({ tracks: [...state.tracks, { ...track, volume: track.type === 'visual' ? 0 : 1 }] })),
+
+  reorderTracks: (fromIndex, toIndex) => set((state) => {
+    if (fromIndex === toIndex) return state;
+    const tracks = [...state.tracks];
+    const [moved] = tracks.splice(fromIndex, 1);
+    tracks.splice(toIndex, 0, moved);
+    return { tracks };
+  }),
 
   updateTrack: (id, updates) => {
     if (updates.startTime !== undefined || updates.endTime !== undefined) {
@@ -443,10 +452,16 @@ export const createTrackSlice: StateCreator<EditorState, [], [], TrackSlice> = (
         canvas.add(track.fabricObject);
         const bg = canvas.getObjects().find((o) => (o as any).customType === "background");
         if (bg) canvas.moveObjectTo(bg, 0);
-        // Re-show the armature and immediately sync its position so there is
-        // no flash of misalignment on the first rendered frame after re-entry.
+      }
+
+      // Always ensure the armatureDisplay is visible and synced whenever the
+      // fabric object is in range. This covers the case where the armature was
+      // hidden (e.g. by a reset to t=0) but the fabric proxy was never removed
+      // from canvas (because hasMotion=true), so the canvas.add branch above
+      // is never entered — and the armature would stay invisible without this.
+      {
         const displayShow = (track.fabricObject as any).armatureDisplay;
-        if (displayShow) {
+        if (displayShow && !displayShow.visible) {
           displayShow.visible = true;
           const dbScale = (track.fabricObject as any).dbScale ?? 1;
           const isProp  = (track.fabricObject as any).customType === "prop";
