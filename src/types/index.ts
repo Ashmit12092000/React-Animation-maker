@@ -95,6 +95,12 @@ export interface TrackObject {
   imageFilters?: string[];
   pathAnimation?: PathAnimation | null;
   volume?: number;
+  ttsParams?: {
+    text: string;
+    lang: string;
+    pitch: number;
+    rate: number;
+  } | null;
   // Character-specific
   characterAnimation?: string | null;        // current DragonBones anim e.g. "Idle","walk","run"
   pendingPathAction?: CharacterPathAction | null;

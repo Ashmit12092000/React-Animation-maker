@@ -47,6 +47,7 @@ export interface TrackSlice {
 
   applyKeyframesAtTime: (time: number) => void;
   addAudioTrack: (name: string, audioSrc: string) => void;
+  addTTSTrack: (name: string, ttsParams: { text: string; lang: string; pitch: number; rate: number }, duration: number) => void;
   addVideoTrack: (name: string, videoSrc: string) => void;
   syncAudioPlayback: () => void;
 
@@ -660,6 +661,18 @@ export const createTrackSlice: StateCreator<EditorState, [], [], TrackSlice> = (
     set((state) => ({ tracks: [...state.tracks, newTrack] }));
   },
 
+  addTTSTrack: (name, ttsParams, duration) => {
+    get().saveCheckpoint();
+    const id = `tts_${Date.now()}`;
+    const newTrack: TrackObject = {
+      id, name, fabricObject: null, startTime: 0, endTime: duration, keyframes: [], color: "purple",
+      initialState: { left: 0, top: 0, scaleX: 1, scaleY: 1, angle: 0, opacity: 1 },
+      type: "audio", audioElement: null, audioSrc: "tts://", volume: 1,
+      mediaDuration: duration, ttsParams,
+    };
+    set((state) => ({ tracks: [...state.tracks, newTrack] }));
+  },
+
   addVideoTrack: (name, videoSrc) => {
     get().saveCheckpoint();
     const video = document.createElement("video");
@@ -802,7 +815,39 @@ export const createTrackSlice: StateCreator<EditorState, [], [], TrackSlice> = (
   syncAudioPlayback: () => {
     const { tracks, currentTime, isPlaying } = get();
 
+    // Handle TTS tracks separately via speechSynthesis
+    const ttsTracks = tracks.filter(t => t.ttsParams && t.audioSrc === "tts://");
+    ttsTracks.forEach((track) => {
+      if (!track.ttsParams) return;
+      const isInRange = isPlaying && currentTime >= track.startTime && currentTime < track.endTime;
+      const isSpeaking = window.speechSynthesis.speaking;
+
+      if (isInRange && !isSpeaking) {
+        // Only trigger at the very start of the track (within first 0.2s) to avoid re-speaking mid-playback
+        const elapsed = currentTime - track.startTime;
+        if (elapsed < 0.2) {
+          const utt = new SpeechSynthesisUtterance(track.ttsParams.text);
+          utt.lang = track.ttsParams.lang;
+          utt.pitch = track.ttsParams.pitch;
+          utt.rate = track.ttsParams.rate;
+          utt.volume = track.volume ?? 1;
+          const availableVoices = window.speechSynthesis.getVoices();
+          const match = availableVoices.find(v => v.lang.startsWith(track.ttsParams!.lang.split("-")[0]));
+          if (match) utt.voice = match;
+          window.speechSynthesis.cancel();
+          window.speechSynthesis.speak(utt);
+        }
+      } else if (!isPlaying || !isInRange) {
+        if (window.speechSynthesis.speaking) {
+          window.speechSynthesis.cancel();
+        }
+      }
+    });
+
     tracks.forEach((track) => {
+      // Skip TTS tracks — handled above
+      if (track.ttsParams && track.audioSrc === "tts://") return;
+
       const mediaElement: HTMLAudioElement | HTMLVideoElement | null =
         track.audioElement ?? ((track.fabricObject as any)?._element ?? null);
 

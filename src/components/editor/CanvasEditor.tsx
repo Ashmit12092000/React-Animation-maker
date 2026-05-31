@@ -18,6 +18,7 @@ import { useEditorStore, type Asset } from "@/stores/editorStore";
 import { ContextMenu } from "./ContextMenu";
 import { PathDrawOverlay } from "./PathDrawOverlay";
 import { PropActionPopup } from "./PropActionPopup";
+import { BackgroundCropModal } from "./BackgroundCropModal";
 import { loadCharacter, loadProp, hookPixiTicker } from "@/lib/dragonbonesRenderer";
 
 (window as any).PIXI = PIXI;
@@ -36,6 +37,9 @@ export function CanvasEditor() {
     canvasEl: HTMLCanvasElement | null;
     propTrackId: string;
   } | null>(null);
+
+  // ── Background crop modal state ──────────────────────────────────────────
+  const [bgCropTarget, setBgCropTarget] = useState<HTMLImageElement | null>(null);
 
 
   const {
@@ -357,13 +361,26 @@ export function CanvasEditor() {
       (path as any)._customId = pathId;
       (path as any)._assetName = "Drawing";
       (path as any).customType = "drawing";
-      (path as any).selectable = false;
-      (path as any).evented = false;
-      (path as any).stroke = store.drawingColor;
-      (path as any).strokeWidth = store.drawingBrushSize;
       (path as any).fill = "";
 
-      canvas.renderAll();
+      // ── Make selectable SYNCHRONOUSLY, before React re-renders ────────────
+      // setCoords() refreshes Fabric's internal hit-test bounding boxes so
+      // clicks on the stroke register immediately.
+      path.set({ selectable: true, evented: true });
+      path.setCoords();
+
+      // Exit drawing mode right here on the canvas object — don't wait for
+      // the useEffect that reacts to drawingEnabled state change.
+      canvas.isDrawingMode = false;
+      canvas.selection = true;
+
+      // Auto-select the new stroke so the user can immediately interact with it
+      canvas.setActiveObject(path);
+      canvas.requestRenderAll();
+
+      // Sync React state last — this just updates the toolbar UI (Pen → Select)
+      // and triggers the useEffect which will call setCoords() again (harmless).
+      store.setDrawingEnabled(false);
     });
 
     // Add cleanup for removed objects
@@ -660,6 +677,14 @@ export function CanvasEditor() {
       pencil.width = drawingBrushSize;
       canvas.freeDrawingBrush = pencil;
 
+      // Lock drawing objects so they don't interfere with new strokes
+      canvas.getObjects().forEach((obj) => {
+        if ((obj as any).customType === "drawing") {
+          obj.set({ selectable: false, evented: false });
+        }
+      });
+      canvas.discardActiveObject();
+
       // Show pencil crosshair cursor
       if (upperEl) {
         upperEl.style.cursor = "crosshair";
@@ -673,6 +698,16 @@ export function CanvasEditor() {
     if (upperEl) {
       upperEl.style.cursor = "";
     }
+
+    // Make existing hand-drawn objects selectable so user can pick them and apply Draw Path.
+    // setCoords() is required so Fabric updates its internal hit-testing bounding boxes.
+    canvas.getObjects().forEach((obj) => {
+      if ((obj as any).customType === "drawing") {
+        obj.set({ selectable: true, evented: true });
+        obj.setCoords();
+      }
+    });
+    canvas.requestRenderAll();
   }, [drawingEnabled, drawingColor, drawingBrushSize, eraserEnabled, eraserSize]);
 
   // ── Restore DragonBones characters/props after loading a save file ─────────
@@ -1460,6 +1495,90 @@ export function CanvasEditor() {
           x={contextMenu.x}
           y={contextMenu.y}
           onClose={() => setContextMenu({ visible: false, x: 0, y: 0 })}
+          onSetAsBackground={() => {
+            const store = useEditorStore.getState();
+            const obj = store.selectedObject;
+            if (!obj) return;
+            // Fabric stores the underlying HTMLImageElement on ._element
+            const imgEl: HTMLImageElement | null =
+              (obj as any)._element ??
+              (obj as any)._originalElement ??
+              null;
+            if (imgEl instanceof HTMLImageElement) {
+              setBgCropTarget(imgEl);
+            } else {
+              // Fallback: export the fabric object as a data URL
+              const dataUrl = (obj as any).toDataURL?.({ format: "png" });
+              if (dataUrl) {
+                const img = new Image();
+                img.onload = () => setBgCropTarget(img);
+                img.src = dataUrl;
+              }
+            }
+          }}
+        />
+      )}
+
+      {/* Background crop modal */}
+      {bgCropTarget && fabricRef.current && (
+        <BackgroundCropModal
+          imageElement={bgCropTarget}
+          canvasWidth={fabricRef.current.getWidth()}
+          canvasHeight={fabricRef.current.getHeight()}
+          onClose={() => setBgCropTarget(null)}
+          onApply={(offsetX, offsetY, scale) => {
+            setBgCropTarget(null);
+            const store = useEditorStore.getState();
+            const { selectedObject, canvas } = store;
+            if (!selectedObject || !canvas) return;
+
+            store.saveCheckpoint();
+
+            // Demote any existing background
+            canvas.getObjects().forEach((o) => {
+              if ((o as any).customType === "background" && o !== selectedObject) {
+                (o as any).customType = "item";
+                o.set({
+                  selectable: true, evented: true,
+                  lockMovementX: false, lockMovementY: false,
+                  lockScalingX: false, lockScalingY: false,
+                  lockRotation: false, hasControls: true, hasBorders: true,
+                });
+              }
+            });
+
+            const canvasW = canvas.getWidth();
+            const canvasH = canvas.getHeight();
+            const naturalW = (selectedObject as any).width || 1;
+            const naturalH = (selectedObject as any).height || 1;
+
+            // scale is already in real canvas units from the modal
+            const renderedW = naturalW * scale;
+            const renderedH = naturalH * scale;
+
+            (selectedObject as any).customType = "background";
+            selectedObject.set({
+              selectable: false,
+              evented: false,
+              hasControls: false,
+              hasBorders: false,
+              lockMovementX: true,
+              lockMovementY: true,
+              lockScalingX: true,
+              lockScalingY: true,
+              lockRotation: true,
+              originX: "left",
+              originY: "top",
+              scaleX: scale,
+              scaleY: scale,
+              left: (canvasW - renderedW) / 2 + offsetX,
+              top:  (canvasH - renderedH) / 2 + offsetY,
+            });
+            selectedObject.setCoords();
+            canvas.moveObjectTo(selectedObject, 0);
+            canvas.renderAll();
+            store.captureState(store.selectedObjectId!);
+          }}
         />
       )}
 

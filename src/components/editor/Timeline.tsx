@@ -87,6 +87,7 @@ export function Timeline() {
     duration,
     isPlaying,
     selectedObjectId,
+    selectedObject,
     setCurrentTime,
     setIsPlaying,
     setSelectedObject,
@@ -352,7 +353,44 @@ export function Timeline() {
     toast.success("Track split");
   };
 
+  const selectedTrack = tracks.find((t) => t.id === selectedObjectId);
+  const hasPath = !!(selectedTrack?.pathAnimation);
+  // A drawing object is selected when: no timeline track exists for it AND
+  // either the fabric object has customType "drawing" OR the id starts with "drawing_"
+  const isDrawingObjectSelected =
+    !selectedTrack &&
+    !!selectedObjectId &&
+    ((selectedObject as any)?.customType === "drawing" ||
+      selectedObjectId.startsWith("drawing_"));
+
   const handleDrawPath = () => {
+    // Hand-drawn canvas object selected (no timeline track yet) — create track on the fly
+    if (isDrawingObjectSelected && selectedObject) {
+      const store = useEditorStore.getState();
+      const trackId = (selectedObject as any)._customId || `drawing_${Date.now()}`;
+      (selectedObject as any)._customId = trackId;
+      const maxEnd = Math.max(5, ...store.tracks.map(t => t.endTime).filter(isFinite));
+      store.addTrack({
+        id: trackId,
+        name: (selectedObject as any)._assetName || "Drawing",
+        type: "visual",
+        fabricObject: selectedObject,
+        startTime: 0,
+        endTime: maxEnd,
+        keyframes: [],
+        color: "purple",
+        initialState: {
+          left: selectedObject.left ?? 0,
+          top: selectedObject.top ?? 0,
+          scaleX: selectedObject.scaleX ?? 1,
+          scaleY: selectedObject.scaleY ?? 1,
+          angle: selectedObject.angle ?? 0,
+          opacity: selectedObject.opacity ?? 1,
+        },
+      });
+      setPathDrawMode(true, trackId);
+      return;
+    }
     if (!selectedObjectId) { toast.error("Select a track first"); return; }
     const track = tracks.find((t) => t.id === selectedObjectId);
     if (!track || track.type !== "visual") { toast.error("Path animation only works on visual objects"); return; }
@@ -369,8 +407,7 @@ export function Timeline() {
     toast.success("Path removed");
   };
 
-  const selectedTrack = tracks.find((t) => t.id === selectedObjectId);
-  const hasPath = !!(selectedTrack?.pathAnimation);
+
   const [showVoiceRecorder, setShowVoiceRecorder] = useState(false);
   const [trimDialog, setTrimDialog] = useState<{ trackId: string; startTime: number; endTime: number } | null>(null);
 
@@ -507,17 +544,19 @@ export function Timeline() {
           ) : (
             <button
               onClick={handleDrawPath}
-              disabled={!selectedObjectId || selectedTrack?.type !== "visual"}
+              disabled={!isDrawingObjectSelected && (!selectedObjectId || selectedTrack?.type !== "visual")}
               title={
-                !selectedObjectId
-                  ? "Select a visual track first"
+                isDrawingObjectSelected
+                  ? "Draw a motion path for this drawing"
+                  : !selectedObjectId
+                  ? "Select a visual track or drawing first"
                   : selectedTrack?.type !== "visual"
                   ? "Only works on visual objects"
                   : "Draw a motion path"
               }
               className={cn(
                 "h-7 px-2.5 flex items-center gap-1.5 rounded-md text-xs font-semibold transition-all border",
-                selectedObjectId && selectedTrack?.type === "visual"
+                (isDrawingObjectSelected || (selectedObjectId && selectedTrack?.type === "visual"))
                   ? pathDrawMode
                     ? "bg-violet-500/30 text-violet-300 border-violet-500/50 animate-pulse"
                     : "bg-violet-500/15 text-violet-400 hover:bg-violet-500/25 border-violet-500/25 hover:border-violet-500/50"

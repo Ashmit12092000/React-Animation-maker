@@ -1,4 +1,4 @@
-import { useState, useRef, useEffect } from "react";
+import { useState } from "react";
 import { Volume2, Loader2, Plus } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import {
@@ -42,104 +42,91 @@ const TTS_VOICES: Record<string, { name: string; pitch: number; rate: number }[]
   ],
 };
 
-type TTSState = "idle" | "generating" | "ready";
+type TTSState = "idle" | "estimating" | "ready";
+
+/** Estimate speech duration by actually speaking and timing it (once). */
+function estimateSpeechDuration(
+  text: string,
+  lang: string,
+  pitch: number,
+  rate: number,
+): Promise<number> {
+  return new Promise((resolve) => {
+    const utt = new SpeechSynthesisUtterance(text);
+    utt.lang = lang;
+    utt.pitch = pitch;
+    utt.rate = rate;
+    utt.volume = 0; // silent — we only want the duration
+
+    const availableVoices = window.speechSynthesis.getVoices();
+    const match = availableVoices.find(v => v.lang.startsWith(lang.split("-")[0]));
+    if (match) utt.voice = match;
+
+    const start = performance.now();
+    utt.onend = () => resolve((performance.now() - start) / 1000);
+    utt.onerror = () => resolve(Math.max(2, text.length / 15)); // fallback estimate
+    window.speechSynthesis.cancel();
+    window.speechSynthesis.speak(utt);
+  });
+}
 
 export function TTSPanel() {
   const [text, setText] = useState("");
   const [language, setLanguage] = useState("en-US");
   const [voiceIndex, setVoiceIndex] = useState(0);
   const [ttsState, setTtsState] = useState<TTSState>("idle");
-  const [audioUrl, setAudioUrl] = useState<string | null>(null);
+  const [estimatedDuration, setEstimatedDuration] = useState<number | null>(null);
   const [charCount, setCharCount] = useState(0);
   const MAX_CHARS = 300;
 
-  const keepAudioUrlAliveRef = useRef(false);
-  const { addAudioTrack } = useEditorStore();
-
-  useEffect(() => {
-    return () => {
-      if (audioUrl && !keepAudioUrlAliveRef.current) {
-        URL.revokeObjectURL(audioUrl);
-      }
-      keepAudioUrlAliveRef.current = false;
-    };
-  }, [audioUrl]);
+  const { addTTSTrack } = useEditorStore();
 
   const handleTextChange = (e: React.ChangeEvent<HTMLTextAreaElement>) => {
     const val = e.target.value.slice(0, MAX_CHARS);
     setText(val);
     setCharCount(val.length);
     setTtsState("idle");
-    setAudioUrl(null);
+    setEstimatedDuration(null);
   };
 
   const handleLanguageChange = (val: string) => {
     setLanguage(val);
     setVoiceIndex(0);
     setTtsState("idle");
-    setAudioUrl(null);
+    setEstimatedDuration(null);
   };
 
-  const generateSpeech = () => {
+  const generateSpeech = async () => {
     if (!text.trim()) return;
-    setTtsState("generating");
+    setTtsState("estimating");
 
     const voices = TTS_VOICES[language] || TTS_VOICES["en-US"];
     const voiceConfig = voices[voiceIndex] || voices[0];
 
-    const utterance = new SpeechSynthesisUtterance(text);
-    utterance.lang = language;
-    utterance.pitch = voiceConfig.pitch;
-    utterance.rate = voiceConfig.rate;
-
-    const availableVoices = window.speechSynthesis.getVoices();
-    const match = availableVoices.find(v => v.lang.startsWith(language.split("-")[0]));
-    if (match) utterance.voice = match;
-
-    try {
-      const audioCtx = new AudioContext();
-      const dest = audioCtx.createMediaStreamDestination();
-      const recorder = new MediaRecorder(dest.stream);
-      const chunks: Blob[] = [];
-
-      recorder.ondataavailable = e => { if (e.data.size > 0) chunks.push(e.data); };
-      recorder.onstop = () => {
-        const blob = new Blob(chunks, { type: "audio/webm" });
-        const url = URL.createObjectURL(blob);
-        setAudioUrl(url);
-        setTtsState("ready");
-      };
-
-      utterance.onstart = () => recorder.start(100);
-      utterance.onend = () => {
-        setTimeout(() => recorder.stop(), 200);
-      };
-      utterance.onerror = () => {
-        setTtsState("ready");
-      };
-
-      window.speechSynthesis.speak(utterance);
-    } catch {
-      utterance.onend = () => setTtsState("ready");
-      utterance.onerror = () => setTtsState("idle");
-      window.speechSynthesis.speak(utterance);
-    }
+    const dur = await estimateSpeechDuration(text, language, voiceConfig.pitch, voiceConfig.rate);
+    setEstimatedDuration(dur);
+    setTtsState("ready");
   };
 
   const addToTimeline = () => {
-    if (!audioUrl) return;
+    if (!estimatedDuration) return;
     const langLabel = TTS_LANGUAGES.find(l => l.code === language)?.label || language;
     const voices = TTS_VOICES[language] || TTS_VOICES["en-US"];
-    const voiceName = voices[voiceIndex]?.name || "Natural";
+    const voiceConfig = voices[voiceIndex] || voices[0];
+    const voiceName = voiceConfig?.name || "Natural";
     const trackName = `TTS – ${langLabel} (${voiceName})`;
     const snippet = text.slice(0, 30) + (text.length > 30 ? "…" : "");
 
-    addAudioTrack(`${trackName}: "${snippet}"`, audioUrl);
-    keepAudioUrlAliveRef.current = true;
+    addTTSTrack(`${trackName}: "${snippet}"`, {
+      text,
+      lang: language,
+      pitch: voiceConfig.pitch,
+      rate: voiceConfig.rate,
+    }, estimatedDuration);
 
     setText("");
     setCharCount(0);
-    setAudioUrl(null);
+    setEstimatedDuration(null);
     setTtsState("idle");
   };
 
@@ -238,7 +225,7 @@ export function TTSPanel() {
             size="sm"
             variant="outline"
             className="flex-1 gap-1.5 border-panel-border text-xs"
-            disabled={!text.trim() || ttsState === "generating"}
+            disabled={!text.trim() || ttsState === "estimating"}
             onClick={previewSpeech}
           >
             <Volume2 className="w-3.5 h-3.5" />
@@ -247,25 +234,25 @@ export function TTSPanel() {
           <Button
             size="sm"
             className="flex-1 gap-1.5 bg-blue-600 hover:bg-blue-700 text-white text-xs"
-            disabled={!text.trim() || ttsState === "generating"}
+            disabled={!text.trim() || ttsState === "estimating"}
             onClick={generateSpeech}
           >
-            {ttsState === "generating" ? (
-              <><Loader2 className="w-3.5 h-3.5 animate-spin" /> Generating…</>
+            {ttsState === "estimating" ? (
+              <><Loader2 className="w-3.5 h-3.5 animate-spin" /> Timing…</>
             ) : (
               <><Volume2 className="w-3.5 h-3.5" /> Generate</>
             )}
           </Button>
         </div>
 
-        {/* Add to Timeline — only shown once audio is actually generated */}
-        {ttsState === "ready" && audioUrl && (
+        {/* Add to Timeline — only shown once timing is measured */}
+        {ttsState === "ready" && estimatedDuration && (
           <Button
             size="sm"
             className="w-full gap-1.5 bg-purple-600 hover:bg-purple-700 text-white text-xs"
             onClick={addToTimeline}
           >
-            <Plus className="w-3.5 h-3.5" /> Add to Timeline
+            <Plus className="w-3.5 h-3.5" /> Add to Timeline ({estimatedDuration.toFixed(1)}s)
           </Button>
         )}
       </div>

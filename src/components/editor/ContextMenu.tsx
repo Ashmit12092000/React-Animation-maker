@@ -19,9 +19,10 @@ interface ContextMenuProps {
   x: number;
   y: number;
   onClose: () => void;
+  onSetAsBackground?: () => void;
 }
 
-export function ContextMenu({ x, y, onClose }: ContextMenuProps) {
+export function ContextMenu({ x, y, onClose, onSetAsBackground }: ContextMenuProps) {
   const menuRef = useRef<HTMLDivElement>(null);
   
   // 1. Destructure necessary store actions
@@ -164,7 +165,11 @@ export function ContextMenu({ x, y, onClose }: ContextMenuProps) {
                   icon={<Image className="w-4 h-4" />}
                   label="Set as Background"
                   onClick={() => {
-                    setAsBackground();
+                    if (onSetAsBackground) {
+                      onSetAsBackground();
+                    } else {
+                      setAsBackground();
+                    }
                     onClose();
                   }}
                 />
