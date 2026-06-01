@@ -47,8 +47,8 @@ interface LottieEntry {
 }
 
 const LOTTIE_CATALOGUE: LottieEntry[] = [
-  { id: "moving-scene", label: "Moving Scene",  emoji: "🌳", category: "Nature",      url: "wmremove-transformed.json", bg: "#fbbf24" },
-  { id: "cloud",        label: "Cloud",          emoji: "☁️", category: "Nature",      url: "cloud.json",                bg: "#bfdbfe" },
+  { id: "moving-scene", label: "Moving Scene",  emoji: "🌳", category: "Nature",      url: "public/wmremove-transformed.json", bg: "#fbbf24" },
+  { id: "cloud",        label: "Cloud",          emoji: "☁️", category: "Nature",      url: "public/cloud.json",                bg: "#bfdbfe" },
   { id: "night-sky",   label: "Night Sky",       emoji: "🌌", category: "Nature",      url: "https://assets2.lottiefiles.com/packages/lf20_kcsr6fcp.json",  bg: "#0f0c29" },
   { id: "sunset",      label: "Sunset",          emoji: "🌅", category: "Nature",      url: "https://assets9.lottiefiles.com/packages/lf20_xlmz9xwm.json",  bg: "#f97316" },
   { id: "rain",        label: "Rainy Day",       emoji: "🌧️", category: "Nature",      url: "https://assets5.lottiefiles.com/packages/lf20_twijbubv.json",  bg: "#1e3a5f" },
