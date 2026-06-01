@@ -395,6 +395,15 @@ export function CanvasEditor() {
         if (obj instanceof AnimatedGifImage) obj.stop();
       }
 
+      // ── Lottie scene cleanup ─────────────────────────────────────────────
+      if (obj && (obj as any).customType === "scene") {
+        const anim = (obj as any)._lottieAnim;
+        if (anim) {
+          try { anim.destroy(); } catch (_) {}
+          (obj as any)._lottieAnim = null;
+        }
+      }
+
       // ── DragonBones armature cleanup (character & prop) ──────────────────
       if (obj && ((obj as any).customType === "character" || (obj as any).customType === "prop")) {
         const display = (obj as any).armatureDisplay;
@@ -1245,6 +1254,87 @@ export function CanvasEditor() {
         } else {
           videoEl.onloadedmetadata = onMetadataLoaded;
         }
+      } else if ((asset as any).type === "scene") {
+        // ── Lottie animated scene ─────────────────────────────────────────
+        // Render Lottie into an offscreen canvas, then wrap it in a
+        // FabricImage with objectCaching:false so Fabric repaints every frame.
+        (async () => {
+          try {
+            const lottie = (await import("lottie-web")).default;
+
+            const SIZE = 320;
+            const offscreen = document.createElement("canvas");
+            offscreen.width  = SIZE;
+            offscreen.height = SIZE;
+
+            // lottie-web "canvas" renderer draws into our offscreen canvas
+            const anim = lottie.loadAnimation({
+              renderer:   "canvas",
+              loop:       true,
+              autoplay:   true,
+              path:       (asset as any).src,
+              rendererSettings: {
+                context:          offscreen.getContext("2d")!,
+                scaleMode:        "noScale",
+                clearCanvas:      true,
+                progressiveLoad:  false,
+              },
+            } as any);
+
+            await new Promise<void>((resolve, reject) => {
+              anim.addEventListener("data_ready",  () => resolve());
+              anim.addEventListener("data_failed", () => reject(new Error("Lottie load failed")));
+              setTimeout(() => reject(new Error("Lottie timeout")), 10000);
+            });
+
+            const fabricScene = new FabricImage(offscreen as any, {
+              left:          baseLeft,
+              top:           baseTop,
+              objectCaching: false,
+            });
+            fabricScene.scale(1);
+            fabricScene.setCoords();
+
+            (fabricScene as any)._customId  = id;
+            (fabricScene as any).customType = "scene";
+            (fabricScene as any)._lottieAnim = anim;
+
+            fabricRef.current!.add(fabricScene);
+            fabricRef.current!.setActiveObject(fabricScene);
+
+            // Drive Fabric repaints from Lottie's enterFrame event
+            anim.addEventListener("enterFrame", () => {
+              fabricRef.current?.requestRenderAll();
+            });
+
+            const initialState = {
+              left:   fabricScene.left   || 0,
+              top:    fabricScene.top    || 0,
+              scaleX: fabricScene.scaleX || 1,
+              scaleY: fabricScene.scaleY || 1,
+              angle:  fabricScene.angle  || 0,
+              opacity: fabricScene.opacity ?? 1,
+            };
+
+            addTrack({
+              id,
+              name:         asset.name,
+              fabricObject: fabricScene,
+              startTime:    0,
+              endTime:      5,
+              keyframes:    [],
+              color:        "purple",
+              initialState,
+              type:         "visual",
+            });
+
+            setSelectedObject(id, fabricScene);
+            fabricRef.current!.renderAll();
+          } catch (err) {
+            console.error("[Lottie] Failed to load scene:", err);
+          }
+        })();
+        return;
       } else {
         // Background Logic
         const bg = new Rect({
