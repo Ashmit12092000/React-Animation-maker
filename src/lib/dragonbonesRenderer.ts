@@ -14,9 +14,9 @@ import * as PIXI from "pixi.js";
 import { PixiFactory } from "dragonbones-pixijs";
 export type { PixiArmatureDisplay } from "dragonbones-pixijs";
 
-const SKE_URL = "/dragonbones/characte_2_ske.json";
-const TEX_URL = "/dragonbones/characte_2_tex.json";
-const IMG_URL = "/dragonbones/characte_2_tex.png";
+const SKE_URL = "/animate/dragonbones/characte_2_ske.json";
+const TEX_URL = "/animate/dragonbones/characte_2_tex.json";
+const IMG_URL = "/animate/dragonbones/characte_2_tex.png";
 
 let _factoryReady = false;
 let _loadPromise: Promise<void> | null = null;
