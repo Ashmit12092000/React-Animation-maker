@@ -4,13 +4,14 @@ import { HistorySlice, createHistorySlice } from "./slices/historySlice";
 import { TrackSlice, createTrackSlice } from "./slices/trackSlice";
 import { AssetSlice, createAssetSlice, sampleAssets, fontStyles } from "./slices/assetSlice";
 import { DrawingSlice, createDrawingSlice } from "./slices/drawingSlice";
+import { SceneSlice, createSceneSlice } from "./slices/sceneSlice";
 import type { PendingArmature } from "../utils/saveLoad";
 
 // Re-export common types/constants for components
 export { sampleAssets, fontStyles };
 export type { Asset } from "../types";
 
-export interface EditorState extends CanvasSlice, HistorySlice, TrackSlice, AssetSlice, DrawingSlice {
+export interface EditorState extends CanvasSlice, HistorySlice, TrackSlice, AssetSlice, DrawingSlice, SceneSlice {
     projectName: string;
     pendingArmatures: PendingArmature[];
     setPendingArmatures: (a: PendingArmature[]) => void;
@@ -25,4 +26,5 @@ export const useEditorStore = create<EditorState>((...a) => ({
     ...createTrackSlice(...a),
     ...createAssetSlice(...a),
     ...createDrawingSlice(...a),
+    ...createSceneSlice(...a),
 }));

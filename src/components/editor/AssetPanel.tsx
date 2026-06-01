@@ -6,6 +6,7 @@ import {
 } from "@/stores/editorStore";
 import type { Asset } from "@/types";
 import { cn } from "../../utils/utils";
+import { SceneManagerPanel } from "@/components/editor/SceneManagerPanel";
 import {
   Box,
   Image as ImageIcon,
@@ -667,16 +668,10 @@ export function AssetPanel() {
           </div>
         )}
 
-        {/* SCENES */}
+        {/* SCENES — full SceneManagerPanel (storyboard + animated BG library) */}
         {activeTab === "scenes" && (
-          <div className="flex flex-col h-full">
-            <div className="p-4 border-b border-panel-border">
-              <h2 className="font-semibold text-foreground">Animated Scenes</h2>
-              <p className="text-xs text-muted-foreground mt-1">Free Lottie backgrounds · click to apply</p>
-            </div>
-            <div className="flex-1 overflow-y-auto p-3 custom-scrollbar">
-              <ScenesPanel />
-            </div>
+          <div className="flex flex-col h-full overflow-hidden">
+            <SceneManagerPanel />
           </div>
         )}
 
