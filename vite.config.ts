@@ -5,6 +5,7 @@ import path from "path";
 // https://vitejs.dev/config/
 //dfh
 export default defineConfig(({ mode }) => ({
+  base: "/animate/", // <-- ADD THIS LINE (Make sure to include both slashes)
   server: {
     host: "::",
     port: 8080,
