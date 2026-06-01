@@ -13,6 +13,8 @@ import {
   RotateCw,
   Image,
   Wand2,
+  ChevronsUp,
+  ChevronsDown,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 
@@ -32,6 +34,8 @@ export function ContextMenu({ x, y, onClose, onSetAsBackground, onOpenAudioFilte
     selectedObject,
     moveObjectUp,
     moveObjectDown,
+    bringToFront,
+    sendToBack,
     toggleLock,
     deleteSelected,
     copyObject,
@@ -88,10 +92,10 @@ export function ContextMenu({ x, y, onClose, onSetAsBackground, onOpenAudioFilte
       {selectedObject && (
         <>
           <MenuItem
-            icon={<SendToBack className="w-4 h-4" />}
-            label="Send Backward"
+            icon={<ChevronsUp className="w-4 h-4" />}
+            label="Bring to Front"
             onClick={() => {
-              moveObjectDown();
+              bringToFront();
               onClose();
             }}
           />
@@ -100,6 +104,22 @@ export function ContextMenu({ x, y, onClose, onSetAsBackground, onOpenAudioFilte
             label="Bring Forward"
             onClick={() => {
               moveObjectUp();
+              onClose();
+            }}
+          />
+          <MenuItem
+            icon={<SendToBack className="w-4 h-4" />}
+            label="Send Backward"
+            onClick={() => {
+              moveObjectDown();
+              onClose();
+            }}
+          />
+          <MenuItem
+            icon={<ChevronsDown className="w-4 h-4" />}
+            label="Send to Back"
+            onClick={() => {
+              sendToBack();
               onClose();
             }}
           />

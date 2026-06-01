@@ -95,13 +95,33 @@ export const createTrackSlice: StateCreator<EditorState, [], [], TrackSlice> = (
 
   addTrack: (track) => set((state) => ({ tracks: [...state.tracks, { ...track, volume: track.type === 'visual' ? 0 : 1 }] })),
 
-  reorderTracks: (fromIndex, toIndex) => set((state) => {
-    if (fromIndex === toIndex) return state;
+  reorderTracks: (fromIndex, toIndex) => {
+    if (fromIndex === toIndex) return;
+    const state = get();
     const tracks = [...state.tracks];
     const [moved] = tracks.splice(fromIndex, 1);
     tracks.splice(toIndex, 0, moved);
-    return { tracks };
-  }),
+
+    // Sync Fabric canvas z-order to match the new track order.
+    // Track index 0 = bottom layer, last index = top layer.
+    // Background (customType === "background") is always pinned to index 0.
+    const canvas = state.canvas;
+    if (canvas) {
+      const bgObject = canvas.getObjects().find((o) => (o as any).customType === "background");
+      const bgIndex = bgObject ? 0 : -1;
+
+      tracks.forEach((track, idx) => {
+        if (!track.fabricObject) return;
+        // Offset above background (if any)
+        const targetZ = bgIndex >= 0 ? idx + 1 : idx;
+        canvas.moveObjectTo(track.fabricObject, targetZ);
+      });
+
+      canvas.renderAll();
+    }
+
+    set({ tracks });
+  },
 
   updateTrack: (id, updates) => {
     if (updates.startTime !== undefined || updates.endTime !== undefined) {

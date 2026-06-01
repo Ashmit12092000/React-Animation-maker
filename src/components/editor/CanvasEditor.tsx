@@ -885,6 +885,7 @@ export function CanvasEditor() {
         }
 
         fabricRef.current!.add(obj);
+        fabricRef.current!.bringObjectToFront(obj);
         fabricRef.current!.setActiveObject(obj);
         fabricRef.current!.renderAll();
 

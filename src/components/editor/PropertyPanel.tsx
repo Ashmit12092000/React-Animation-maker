@@ -6,6 +6,7 @@ import { Slider } from "@/components/ui/slider";
 import { Button } from "@/components/ui/button";
 import { Move, RotateCw, Maximize2, Eye } from "lucide-react";
 import { TTSPanel } from "./TTSPanel";
+import { LayersPanel } from "./LayersPanel";
 import {
   Select,
   SelectContent,
@@ -536,6 +537,11 @@ export function PropertyPanel() {
                 No object selected
               </div>
             )}
+
+            {/* TTS Panel — always visible at bottom */}
+            <div className="mt-4 pt-4 border-t border-panel-border">
+              <LayersPanel />
+            </div>
 
             {/* TTS Panel — always visible at bottom */}
             <div className="mt-4 pt-4 border-t border-panel-border">

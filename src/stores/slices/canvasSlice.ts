@@ -30,6 +30,8 @@ export interface CanvasSlice {
 
   moveObjectUp: () => void;
   moveObjectDown: () => void;
+  bringToFront: () => void;
+  sendToBack: () => void;
   toggleLock: () => void;
   flipObject: (direction: "horizontal" | "vertical") => void;
   rotateImage: () => void;
@@ -110,6 +112,49 @@ export const createCanvasSlice: StateCreator<EditorState, [], [], CanvasSlice> =
         canvas.sendObjectBackwards(selectedObject);
       }
       canvas.renderAll();
+    }
+  },
+
+  bringToFront: () => {
+    get().saveCheckpoint();
+    const { canvas, selectedObject, tracks } = get();
+    if (canvas && selectedObject) {
+      canvas.bringObjectToFront(selectedObject);
+      canvas.renderAll();
+      // Sync tracks array: move this track to the end (top)
+      const id = (selectedObject as any)._customId;
+      if (id) {
+        const idx = tracks.findIndex((t) => t.id === id);
+        if (idx !== -1 && idx !== tracks.length - 1) {
+          const newTracks = [...tracks];
+          const [t] = newTracks.splice(idx, 1);
+          newTracks.push(t);
+          set({ tracks: newTracks });
+        }
+      }
+    }
+  },
+
+  sendToBack: () => {
+    get().saveCheckpoint();
+    const { canvas, selectedObject, tracks } = get();
+    if (canvas && selectedObject) {
+      const bg = canvas.getObjects().find((o) => (o as any).customType === "background");
+      const bgIndex = bg ? canvas.getObjects().indexOf(bg) : -1;
+      // Move to just above background (or index 0 if no background)
+      canvas.moveObjectTo(selectedObject, bgIndex + 1);
+      canvas.renderAll();
+      // Sync tracks array: move this track to the beginning (bottom)
+      const id = (selectedObject as any)._customId;
+      if (id) {
+        const idx = tracks.findIndex((t) => t.id === id);
+        if (idx !== -1 && idx !== 0) {
+          const newTracks = [...tracks];
+          const [t] = newTracks.splice(idx, 1);
+          newTracks.unshift(t);
+          set({ tracks: newTracks });
+        }
+      }
     }
   },
 
