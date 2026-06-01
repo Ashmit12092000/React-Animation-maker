@@ -859,6 +859,11 @@ export const createTrackSlice: StateCreator<EditorState, [], [], TrackSlice> = (
               audioCleaningKeys: cleaningKeys,
               processedAudioSrc: processedUrl,
               audioElement: newAudio,
+              // Save the original offset so we can restore it if filters are removed.
+              originalMediaOffset: t.originalMediaOffset ?? (t.mediaOffset ?? 0),
+              // The processed blob is pre-trimmed to the clip segment, so the
+              // media no longer needs an offset — it starts at t=0 of the clip.
+              mediaOffset: 0,
             }
           : t
       ),
@@ -895,6 +900,9 @@ export const createTrackSlice: StateCreator<EditorState, [], [], TrackSlice> = (
               audioCleaningKeys: [],
               processedAudioSrc: null,
               audioElement: restoredAudio,
+              // Restore the mediaOffset that was saved before filters were applied.
+              mediaOffset: t.originalMediaOffset ?? t.mediaOffset ?? 0,
+              originalMediaOffset: undefined,
             }
           : t
       ),

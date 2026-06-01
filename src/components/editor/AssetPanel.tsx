@@ -63,6 +63,17 @@ const characterGroups: CharacterGroup[] = [
     ],
   },
   {
+    label: "Gestures",
+    color: "#06b6d4",
+    assets: [
+      { id: 'char-wave',       name: 'wave',       type: 'character', icon: '👋', color: '#06b6d4' },
+      { id: 'char-handshake',  name: 'handshake',  type: 'character', icon: '🤝', color: '#06b6d4' },
+      { id: 'char-point',      name: 'point',      type: 'character', icon: '👉', color: '#06b6d4' },
+      { id: 'char-nod',        name: 'nod',        type: 'character', icon: '🙂', color: '#06b6d4' },
+      { id: 'char-shake_head', name: 'shake_head', type: 'character', icon: '🙅', color: '#06b6d4' },
+    ],
+  },
+  {
     label: "Posture",
     color: "#8b5cf6",
     assets: [
@@ -944,7 +955,7 @@ export function AssetPanel() {
             <div className="p-4 border-b border-panel-border">
               <h2 className="font-semibold text-foreground">Characters & Props</h2>
               <p className="text-xs text-muted-foreground mt-1">
-                6 animations · 1 prop — drag onto canvas
+                11 animations · 1 prop — drag onto canvas
               </p>
             </div>
             <div className="flex-1 overflow-y-auto p-4 custom-scrollbar space-y-5">

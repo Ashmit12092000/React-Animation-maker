@@ -105,6 +105,7 @@ export interface TrackObject {
   audioFilterKeys?: string[];       // active effect keys e.g. ["reverb","pitch_up"]
   audioCleaningKeys?: string[];     // active cleaning keys e.g. ["noise_reduction"]
   processedAudioSrc?: string | null; // blob URL of the processed audio
+  originalMediaOffset?: number;     // saved mediaOffset before filter was applied, for restoration
   // Character-specific
   characterAnimation?: string | null;        // current DragonBones anim e.g. "Idle","walk","run"
   pendingPathAction?: CharacterPathAction | null;
@@ -118,4 +119,5 @@ export interface Asset {
   color?: string;
   icon?: string;
   src?: string;
+  isGif?: boolean;
 }

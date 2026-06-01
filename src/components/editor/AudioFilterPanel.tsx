@@ -220,17 +220,54 @@ function audioBufferToWavBlob(buffer: AudioBuffer): Promise<Blob> {
   });
 }
 
-// ─── Component ───────────────────────────────────────────────────────────────
+// ─── Trim an audio blob to a specific time segment ──────────────────────────
+
+async function trimAudioBlob(
+  sourceBlob: Blob,
+  offsetSeconds: number,
+  durationSeconds: number,
+): Promise<Blob> {
+  const arrayBuffer = await sourceBlob.arrayBuffer();
+  const tmpCtx = new AudioContext();
+  let decoded: AudioBuffer;
+  try {
+    decoded = await tmpCtx.decodeAudioData(arrayBuffer);
+  } finally {
+    tmpCtx.close();
+  }
+
+  const sr = decoded.sampleRate;
+  const ch = decoded.numberOfChannels;
+  const startSample = Math.round(offsetSeconds * sr);
+  const clipSamples = Math.round(durationSeconds * sr);
+  const availableSamples = Math.max(0, decoded.length - startSample);
+  const trimmedSamples = Math.min(clipSamples, availableSamples);
+
+  if (trimmedSamples <= 0) return sourceBlob; // guard edge-case
+
+  const trimmed = new OfflineAudioContext(ch, trimmedSamples, sr);
+  const src = trimmed.createBufferSource();
+  src.buffer = decoded;
+  src.connect(trimmed.destination);
+  // start(when, offset, duration)
+  src.start(0, offsetSeconds, durationSeconds);
+  const rendered = await trimmed.startRendering();
+  return audioBufferToWavBlob(rendered);
+}
+
+
 
 interface AudioFilterPanelProps {
   trackId: string;
   trackName: string;
+  mediaOffset: number;
+  clipDuration: number;
   onClose: () => void;
 }
 
 type PanelState = "idle" | "processing";
 
-export function AudioFilterPanel({ trackId, trackName, onClose }: AudioFilterPanelProps) {
+export function AudioFilterPanel({ trackId, trackName, mediaOffset, clipDuration, onClose }: AudioFilterPanelProps) {
   const { tracks, applyAudioFiltersToTrack } = useEditorStore();
   const track = tracks.find(t => t.id === trackId);
 
@@ -252,17 +289,28 @@ export function AudioFilterPanel({ trackId, trackName, onClose }: AudioFilterPan
   const hasOptions = activeCleaning.length > 0 || activeFilters.length > 0;
   const isProcessing = panelState === "processing";
 
-  // Load the source blob once
+  // Load the source blob once — trimmed to this track's clip segment
   const sourceBlobRef = useRef<Blob | null>(null);
   useEffect(() => {
-    const src = track?.processedAudioSrc
-      ? null  // already processed — we re-process from original
-      : track?.audioSrc;
     const originalSrc = track?.audioSrc;
     if (!originalSrc) return;
     fetch(originalSrc)
       .then(r => r.blob())
-      .then(b => { sourceBlobRef.current = b; })
+      .then(async (b) => {
+        // If this track has been split, trim the blob to the clip window so
+        // that filters are applied only to the relevant segment.
+        const offset = mediaOffset ?? 0;
+        const dur    = clipDuration ?? 0;
+        if (offset > 0 || (dur > 0 && dur < (track?.mediaDuration ?? Infinity))) {
+          try {
+            sourceBlobRef.current = await trimAudioBlob(b, offset, dur);
+          } catch {
+            sourceBlobRef.current = b; // fallback to full blob
+          }
+        } else {
+          sourceBlobRef.current = b;
+        }
+      })
       .catch(() => {});
   }, [trackId]);
 

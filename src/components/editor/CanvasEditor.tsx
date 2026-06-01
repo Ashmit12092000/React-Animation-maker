@@ -21,6 +21,7 @@ import { PathDrawOverlay } from "./PathDrawOverlay";
 import { PropActionPopup } from "./PropActionPopup";
 import { BackgroundCropModal } from "./BackgroundCropModal";
 import { loadCharacter, loadProp, hookPixiTicker } from "@/lib/dragonbonesRenderer";
+import { createAnimatedGif, AnimatedGifImage } from "@/utils/gifRenderer";
 
 (window as any).PIXI = PIXI;
 
@@ -41,7 +42,7 @@ export function CanvasEditor() {
 
   // ── Background crop modal state ──────────────────────────────────────────
   const [bgCropTarget, setBgCropTarget] = useState<HTMLImageElement | null>(null);
-  const [audioFilterPanel, setAudioFilterPanel] = useState<{ trackId: string; trackName: string } | null>(null);
+  const [audioFilterPanel, setAudioFilterPanel] = useState<{ trackId: string; trackName: string; mediaOffset: number; clipDuration: number } | null>(null);
 
 
   const {
@@ -388,6 +389,11 @@ export function CanvasEditor() {
     // Add cleanup for removed objects
    canvas.on("object:removed", (e) => {
       const obj = e.target;
+
+      // ── Animated GIF cleanup ─────────────────────────────────────────────
+      if (obj && (obj as any).customType === "gif") {
+        if (obj instanceof AnimatedGifImage) obj.stop();
+      }
 
       // ── DragonBones armature cleanup (character & prop) ──────────────────
       if (obj && ((obj as any).customType === "character" || (obj as any).customType === "prop")) {
@@ -849,7 +855,10 @@ export function CanvasEditor() {
       ) => {
         (obj as any)._customId = objId;
         (obj as any)._assetName = objAsset.name;
-        (obj as any).customType = objAsset.type;
+        // Don't overwrite customType if it was already set (e.g. "gif" before this call)
+        if (!(obj as any).customType) {
+          (obj as any).customType = objAsset.type;
+        }
 
         fabricRef.current!.add(obj);
         fabricRef.current!.setActiveObject(obj);
@@ -884,6 +893,30 @@ export function CanvasEditor() {
       };
 
       if (asset.type === "item") {
+        if (asset.src && (asset as any).isGif) {
+          // ── Animated GIF via gifuct-js ─────────────────────────────────────
+          // Fetch the raw GIF bytes, decode all frames, and create an
+          // AnimatedGifImage that overrides _renderFill to draw the current
+          // frame each tick. objectCaching must be false so Fabric redraws it.
+          (async () => {
+            try {
+              const resp = await fetch(asset.src!);
+              const blob = await resp.blob();
+              const gifImg = await createAnimatedGif(blob, {
+                left: baseLeft,
+                top:  baseTop,
+              });
+              (gifImg as any).customType = "gif";
+              addObjectToCanvas(gifImg, id, asset);
+              // Start the per-frame loop (must be called after adding to canvas)
+              if (fabricRef.current) gifImg.play(fabricRef.current);
+            } catch (err) {
+              console.error("[GIF] Failed to load animated GIF:", err);
+            }
+          })();
+          return;
+        }
+
         if (asset.src) {
           const img = new Image();
           img.onload = () => {
@@ -1500,7 +1533,12 @@ export function CanvasEditor() {
           onOpenAudioFilters={() => {
             const store = useEditorStore.getState();
             const track = store.tracks.find(t => t.id === store.selectedObjectId);
-            if (track) setAudioFilterPanel({ trackId: track.id, trackName: track.name });
+            if (track) setAudioFilterPanel({
+              trackId: track.id,
+              trackName: track.name,
+              mediaOffset: track.mediaOffset ?? 0,
+              clipDuration: track.endTime - track.startTime,
+            });
           }}
           onSetAsBackground={() => {
             const store = useEditorStore.getState();
@@ -1531,6 +1569,8 @@ export function CanvasEditor() {
         <AudioFilterPanel
           trackId={audioFilterPanel.trackId}
           trackName={audioFilterPanel.trackName}
+          mediaOffset={audioFilterPanel.mediaOffset}
+          clipDuration={audioFilterPanel.clipDuration}
           onClose={() => setAudioFilterPanel(null)}
         />
       )}
