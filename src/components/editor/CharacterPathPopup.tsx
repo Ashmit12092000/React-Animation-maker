@@ -49,8 +49,14 @@ export function CharacterPathPopup({ trackId, pathEndPoint, canvasEl, onClose, o
   useEffect(() => {
     if (!pathEndPoint || !canvasEl) return;
     const rect   = canvasEl.getBoundingClientRect();
-    const scaleX = rect.width  / (canvasEl.width  || rect.width);
-    const scaleY = rect.height / (canvasEl.height || rect.height);
+    // Path points are in the 960×540 logical canvas space (Fabric's fixed size).
+    // Scale them to screen pixels using the CSS display size of the canvas element.
+    // We use canvasEl.width/height but clamp to logical dimensions in case the
+    // browser has applied DPR scaling to the backing store.
+    const logicalW = Math.min(canvasEl.width,  canvasEl.offsetWidth  || canvasEl.width)  || 960;
+    const logicalH = Math.min(canvasEl.height, canvasEl.offsetHeight || canvasEl.height) || 540;
+    const scaleX = rect.width  / logicalW;
+    const scaleY = rect.height / logicalH;
     let screenX  = rect.left + pathEndPoint.x * scaleX;
     let screenY  = rect.top  + pathEndPoint.y * scaleY;
 

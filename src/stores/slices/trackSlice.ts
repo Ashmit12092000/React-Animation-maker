@@ -441,13 +441,31 @@ export const createTrackSlice: StateCreator<EditorState, [], [], TrackSlice> = (
       const hasMotion = hasPath || hasSequence;
 
       if (time < track.startTime || (!hasMotion && time > track.endTime)) {
-        if (canvas && canvas.contains(track.fabricObject)) {
-          canvas.remove(track.fabricObject);
+        // For character/prop tracks: NEVER call canvas.remove() because
+        // that fires object:removed which disposes & nulls the armatureDisplay.
+        // Instead just hide the fabric proxy and the PIXI armature.
+        // Never call canvas.remove() for tracks that have objects with
+        // lifecycle state attached (armature, lottie anim, gif).
+        // canvas.remove() fires object:removed which permanently destroys them.
+        // Instead, hide via opacity=0 and restore when back in range.
+        const isArmatureTrack = (track.fabricObject as any)?.armatureDisplay != null ||
+          (track.fabricObject as any)?.customType === "character" ||
+          (track.fabricObject as any)?.customType === "prop";
+        const isLottieTrack   = (track.fabricObject as any)?.customType === "scene";
+        const isGifTrack      = (track.fabricObject as any)?.customType === "gif";
+
+        if (isArmatureTrack || isLottieTrack || isGifTrack) {
+          // Hide without removing — preserves the attached anim/display
+          if (track.fabricObject) {
+            track.fabricObject.set({ opacity: 0, evented: false, selectable: false });
+          }
+        } else {
+          if (canvas && canvas.contains(track.fabricObject)) {
+            canvas.remove(track.fabricObject);
+          }
         }
-        // Also hide the PIXI armature so it doesn't linger on the overlay
-        // while the Fabric proxy is off-canvas (e.g. before track start or
-        // after track end, including when playback loops back to t=0).
-        const displayHide = (track.fabricObject as any).armatureDisplay;
+        // Hide the PIXI armature so it doesn't linger on the overlay
+        const displayHide = (track.fabricObject as any)?.armatureDisplay;
         if (displayHide) displayHide.visible = false;
         return;
       }
@@ -456,6 +474,23 @@ export const createTrackSlice: StateCreator<EditorState, [], [], TrackSlice> = (
         canvas.add(track.fabricObject);
         const bg = canvas.getObjects().find((o) => (o as any).customType === "background");
         if (bg) canvas.moveObjectTo(bg, 0);
+      }
+
+      // Restore visibility for tracks hidden via opacity=0 (armature, lottie, gif)
+      if (
+        (track.fabricObject as any)?.customType === "character" ||
+        (track.fabricObject as any)?.customType === "prop"    ||
+        (track.fabricObject as any)?.customType === "scene"   ||
+        (track.fabricObject as any)?.customType === "gif"
+      ) {
+        const savedOpacity = (track.fabricObject as any)._savedOpacity ?? (track.initialState as any)?.opacity ?? 1;
+        if ((track.fabricObject.opacity ?? 1) === 0) {
+          track.fabricObject.set({
+            opacity: savedOpacity,
+            evented: true,
+            selectable: true,
+          });
+        }
       }
 
       // Always ensure the armatureDisplay is visible and synced whenever the
@@ -606,6 +641,11 @@ export const createTrackSlice: StateCreator<EditorState, [], [], TrackSlice> = (
         // Sync PIXI DragonBones display position
         const display = (track.fabricObject as any).armatureDisplay;
         if (display) {
+          // Always make the armature visible during path playback.
+          // It may have been hidden (visible=false) by a t=0 reset and the
+          // conditional re-show block above only fires when visible===false,
+          // which can race with this block on the very first frame.
+          display.visible = true;
           const dbScale = (track.fabricObject as any).dbScale ?? 1;
           const charW   = (track.fabricObject as any).charW   ?? (track.fabricObject.width  || 103);
           const charH   = (track.fabricObject as any).charH   ?? (track.fabricObject.height || 300);

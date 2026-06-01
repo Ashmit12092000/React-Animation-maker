@@ -40,10 +40,11 @@ export function PathDrawOverlay({ canvasWidth, canvasHeight }: Props) {
   // We need the Fabric canvas element to map canvas→screen coords in the popups
   const [fabricCanvasEl, setFabricCanvasEl] = useState<HTMLCanvasElement | null>(null);
   useEffect(() => {
-    // The Fabric <canvas> is the first sibling of our SVG (same parent wrapper)
+    // Explicitly select the Fabric canvas by its data-canvas-role attribute
+    // to avoid accidentally grabbing the PIXI overlay canvas or any other canvas.
     if (svgRef.current) {
       const parent   = svgRef.current.closest(".relative.rounded-lg");
-      const canvasEl = parent?.querySelector("canvas") as HTMLCanvasElement | null;
+      const canvasEl = parent?.querySelector("canvas[data-canvas-role='fabric']") as HTMLCanvasElement | null;
       setFabricCanvasEl(canvasEl ?? null);
     }
   }, [pathDrawMode]);

@@ -396,11 +396,18 @@ export function CanvasEditor() {
       }
 
       // ── Lottie scene cleanup ─────────────────────────────────────────────
+      // Only destroy when the track is actually deleted, not when the timeline
+      // temporarily removes the object (which also fires object:removed).
       if (obj && (obj as any).customType === "scene") {
         const anim = (obj as any)._lottieAnim;
         if (anim) {
-          try { anim.destroy(); } catch (_) {}
-          (obj as any)._lottieAnim = null;
+          const sceneId = (obj as any)._customId;
+          const trackStillExists = !!useEditorStore.getState().tracks.find((t) => t.id === sceneId);
+          if (!trackStillExists) {
+            try { anim.destroy(); } catch (_) {}
+            (obj as any)._lottieAnim = null;
+          }
+          // If track still exists, leave anim alive — it will be re-synced.
         }
       }
 
@@ -408,14 +415,22 @@ export function CanvasEditor() {
       if (obj && ((obj as any).customType === "character" || (obj as any).customType === "prop")) {
         const display = (obj as any).armatureDisplay;
         if (display) {
-          const pixiApp = pixiAppRef.current;
-          if (pixiApp && pixiApp.stage.children.includes(display)) {
-            pixiApp.stage.removeChild(display);
+          // Only fully dispose when the track itself is being deleted (removeTrack),
+          // not when the timeline temporarily removes/hides the proxy rect.
+          // We detect a real deletion by the absence of a matching track in the store.
+          const customId = (obj as any)._customId;
+          const trackStillExists = !!useEditorStore.getState().tracks.find((t) => t.id === customId);
+          if (!trackStillExists) {
+            const pixiApp = pixiAppRef.current;
+            if (pixiApp && pixiApp.stage.children.includes(display)) {
+              pixiApp.stage.removeChild(display);
+            }
+            try { display.dispose(); } catch (_) {}
+            armatureDisplaysRef.current = armatureDisplaysRef.current.filter((d) => d !== display);
+            (obj as any).armatureDisplay = null;
           }
-          try { display.dispose(); } catch (_) {}
-          // Remove from the tracking ref
-          armatureDisplaysRef.current = armatureDisplaysRef.current.filter((d) => d !== display);
-          (obj as any).armatureDisplay = null;
+          // If track still exists, keep the display alive — it will be re-synced
+          // by applyKeyframesAtTime on the next frame.
         }
       }
 
@@ -1594,6 +1609,50 @@ export function CanvasEditor() {
       }
     });
   }, [currentTime, isPlaying, tracks]);
+
+  // Sync Lottie scene animations with timeline playback
+  useEffect(() => {
+    tracks.forEach((track) => {
+      if (track.type !== "visual" || !track.fabricObject) return;
+      const anim = (track.fabricObject as any)._lottieAnim;
+      if (!anim) return;
+
+      const isWithinTrack = currentTime >= track.startTime && currentTime <= track.endTime;
+
+      if (!isWithinTrack) {
+        // Outside track range — pause and hide
+        if (!anim.isPaused) anim.pause();
+        if (track.fabricObject.opacity !== 0) {
+          track.fabricObject.set({ opacity: 0 });
+        }
+        return;
+      }
+
+      // Restore opacity when back in range
+      const savedOpacity = (track.initialState as any)?.opacity ?? 1;
+      if ((track.fabricObject.opacity ?? 1) === 0) {
+        track.fabricObject.set({ opacity: savedOpacity });
+      }
+
+      // Seek to the correct frame based on currentTime
+      const elapsed = currentTime - track.startTime;
+      const totalFrames = anim.totalFrames;
+      const duration = anim.getDuration(false); // seconds
+      const targetFrame = duration > 0
+        ? ((elapsed % duration) / duration) * totalFrames
+        : 0;
+
+      if (isPlaying) {
+        if (anim.isPaused) anim.play();
+      } else {
+        // Scrubbing — seek to exact frame
+        if (!anim.isPaused) anim.pause();
+        anim.goToAndStop(targetFrame, true);
+        fabricRef.current?.requestRenderAll();
+      }
+    });
+  }, [currentTime, isPlaying, tracks]);
+
   return (
     <div
       className="flex-1 flex items-center justify-center bg-canvas p-4 overflow-hidden relative"

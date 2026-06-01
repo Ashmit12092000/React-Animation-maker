@@ -136,6 +136,14 @@ const LOTTIE_SCENES: LottieScene[] = [
     bg: "#fbbf24",
   },
   {
+    id: "Cloud",
+    label: "Cloud",
+    emoji: "☁️",
+    category: "Nature",
+    url: "public/cloud.json",
+    bg: "#bfdbfe",
+  },
+  {
     id: "night-sky",
     label: "Night Sky",
     emoji: "🌌",
