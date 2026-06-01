@@ -1145,7 +1145,7 @@ export function CanvasEditor() {
           addObjectToCanvas(fabricImg, id, asset);
         };
         img.onerror = () => console.error("[Chair] Failed to load chair_new.png");
-        img.src = "/chair_new.png";
+        img.src = "chair_new.png";
         return; // skip DragonBones path below
       }
 
