@@ -394,6 +394,24 @@ export function Timeline() {
     setContextMenu({ visible: true, x: e.clientX, y: e.clientY / 2 - 50 });
   };
 
+  // Right-clicking a track row must first select that track so that store
+  // actions like detachBackground, setAsBackground, deleteSelected etc. have
+  // the correct selectedObject when the context-menu item is tapped.
+  const handleTrackRightClick = (e: React.MouseEvent, track: (typeof tracks)[0]) => {
+    e.preventDefault(); e.stopPropagation();
+    // Select the track (mirrors handleTrackClick logic)
+    if (track.type === "audio") {
+      setSelectedObject(track.id, null, "audio");
+    } else if (track.type === "video") {
+      setSelectedObject(track.id, null, "video");
+    } else if (track.fabricObject) {
+      setSelectedObject(track.id, track.fabricObject, "object");
+      if (canvas) { canvas.setActiveObject(track.fabricObject); canvas.renderAll(); }
+    }
+    // Then open the context menu
+    setContextMenu({ visible: true, x: e.clientX, y: e.clientY / 2 - 50 });
+  };
+
   const handleSplit = () => {
     if (!selectedObjectId) return;
     splitTrack(selectedObjectId);
@@ -857,6 +875,7 @@ export function Timeline() {
                 onDrop={(e) => handleRowDrop(e, trackIndex)}
                 onDragEnd={handleRowDragEnd}
                 onClick={(e) => handleTrackClick(e, track)}
+                onContextMenu={(e) => handleTrackRightClick(e, track)}
                 className="relative flex items-center gap-1.5 px-2 h-12 cursor-pointer transition-colors overflow-hidden"
                 style={{
                   background: isDropTarget
@@ -1052,6 +1071,7 @@ export function Timeline() {
                       borderBottom: "1px solid rgba(255,255,255,0.035)",
                     }}
                     onClick={(e) => handleTrackClick(e, track)}
+                    onContextMenu={(e) => handleTrackRightClick(e, track)}
                   >
                     <div
                       className="absolute h-8 top-2 rounded-md cursor-move overflow-hidden transition-shadow"

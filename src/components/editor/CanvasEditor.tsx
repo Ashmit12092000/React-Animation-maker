@@ -2171,6 +2171,13 @@ export function CanvasEditor() {
             const renderedW = naturalW * scale;
             const renderedH = naturalH * scale;
 
+            // Save current transform so detachBackground can restore it
+            (selectedObject as any)._preBackgroundState = {
+              scaleX: selectedObject.scaleX ?? 1,
+              scaleY: selectedObject.scaleY ?? 1,
+              left:   selectedObject.left   ?? 0,
+              top:    selectedObject.top    ?? 0,
+            };
             (selectedObject as any).customType = "background";
             selectedObject.set({
               selectable: false,

@@ -241,6 +241,13 @@ rotateImage: () => {
 
     // ── Step 2: Promote the selected image to background ────────────────────
     (selectedObject as any).customType = "background";
+    // Save natural dimensions so detachBackground can restore a sensible size
+    (selectedObject as any)._preBackgroundState = {
+      scaleX: selectedObject.scaleX ?? 1,
+      scaleY: selectedObject.scaleY ?? 1,
+      left:   selectedObject.left   ?? 0,
+      top:    selectedObject.top    ?? 0,
+    };
     selectedObject.set({
       selectable:    false,
       evented:       false,
@@ -299,6 +306,35 @@ rotateImage: () => {
       hasBorders:    true,
     });
 
+    // Restore the pre-background scale/position if we saved it, otherwise
+    // fall back to natural image size centred on the canvas.
+    const saved = (selectedObject as any)._preBackgroundState;
+    if (saved) {
+      selectedObject.set({
+        scaleX: saved.scaleX,
+        scaleY: saved.scaleY,
+        left:   saved.left,
+        top:    saved.top,
+      });
+      delete (selectedObject as any)._preBackgroundState;
+    } else {
+      // Fallback: scale to fit a 200px box (same as initial asset placement) and centre
+      const naturalW = (selectedObject as any).width  || 200;
+      const naturalH = (selectedObject as any).height || 200;
+      const canvasW  = canvas.getWidth();
+      const canvasH  = canvas.getHeight();
+      const targetSize = 200;
+      const fallbackScale = Math.min(targetSize / naturalW, targetSize / naturalH);
+      const renderedW = naturalW * fallbackScale;
+      const renderedH = naturalH * fallbackScale;
+      selectedObject.set({
+        scaleX: fallbackScale,
+        scaleY: fallbackScale,
+        left:   (canvasW - renderedW) / 2,
+        top:    (canvasH - renderedH) / 2,
+      });
+    }
+
     // Move it just above the bottom so a solid-color background (if any) stays behind
     const objects = canvas.getObjects();
     const bgColorRect = objects.find(
@@ -307,6 +343,7 @@ rotateImage: () => {
     const targetIndex = bgColorRect ? canvas.getObjects().indexOf(bgColorRect) + 1 : 1;
     canvas.moveObjectTo(selectedObject, targetIndex);
 
+    selectedObject.setCoords();
     canvas.setActiveObject(selectedObject);
     canvas.renderAll();
     get().captureState(selectedObjectId);
