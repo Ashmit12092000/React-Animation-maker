@@ -370,6 +370,17 @@ rotateImage: () => {
     }
 
     if (selectedObjectId) {
+      // Check if the selected object is a freehand drawing (no track — remove directly from canvas)
+      const activeObj = canvas?.getActiveObject();
+      if (activeObj && (activeObj as any).customType === "drawing") {
+        (activeObj as any)._pendingDelete = true;
+        canvas!.remove(activeObj);
+        canvas!.discardActiveObject();
+        canvas!.requestRenderAll();
+        set({ selectedObjectId: null, selectedObject: null, selectedTrackId: null });
+        return;
+      }
+
       get().removeTrack(selectedObjectId);
       if (canvas) {
         canvas.discardActiveObject();

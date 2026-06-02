@@ -19,14 +19,26 @@ export function LayersPanel() {
     sendToBack,
     moveObjectUp,
     moveObjectDown,
+    activeSceneId,
   } = useEditorStore();
 
   const [draggingIndex, setDraggingIndex] = useState<number | null>(null);
   const [dropIndex, setDropIndex] = useState<number | null>(null);
   const [hiddenIds, setHiddenIds] = useState<Set<string>>(new Set());
 
-  // Only visual tracks get shown in the layers panel
-  const visualTracks = [...tracks].filter((t) => t.type === "visual" || t.type === "video");
+  // Reset hidden state when switching scenes
+  const prevSceneIdRef = useRef<string | undefined>(undefined);
+  if (prevSceneIdRef.current !== activeSceneId) {
+    prevSceneIdRef.current = activeSceneId;
+    if (hiddenIds.size > 0) setHiddenIds(new Set());
+  }
+
+  // Only visual tracks belonging to the currently active scene
+  const visualTracks = [...tracks].filter(
+    (t) =>
+      (t.type === "visual" || t.type === "video") &&
+      (!t.sceneId || t.sceneId === activeSceneId)
+  );
   // Reverse so topmost layer appears first (like Figma/Photoshop convention)
   const reversed = [...visualTracks].reverse();
 

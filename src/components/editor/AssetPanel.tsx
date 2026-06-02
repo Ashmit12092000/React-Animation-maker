@@ -763,10 +763,19 @@ export function AssetPanel() {
                 <div className="space-y-2">
                   {audioAssets.length === 0 && <p className="text-xs text-muted-foreground italic">No audio uploaded yet</p>}
                   {audioAssets.map((asset) => (
-                    <button key={asset.id} onClick={() => addAudioTrack(asset.name, asset.src!)} className="w-full flex items-center gap-3 p-2 rounded bg-secondary/40 text-xs border border-transparent hover:border-purple-500/30 hover:bg-secondary/60 transition-colors text-left" title="Click to add to timeline">
-                      <Music className="w-3 h-3 text-purple-400 shrink-0" />
-                      <span className="truncate">{asset.name}</span>
-                    </button>
+                    <div key={asset.id} className="group flex items-center gap-1">
+                      <button onClick={() => addAudioTrack(asset.name, asset.src!)} className="flex-1 flex items-center gap-3 p-2 rounded bg-secondary/40 text-xs border border-transparent hover:border-purple-500/30 hover:bg-secondary/60 transition-colors text-left min-w-0" title="Click to add to timeline">
+                        <Music className="w-3 h-3 text-purple-400 shrink-0" />
+                        <span className="truncate">{asset.name}</span>
+                      </button>
+                      <button
+                        onClick={() => removeUploadedAsset(asset.id)}
+                        className="opacity-0 group-hover:opacity-100 transition-opacity p-1.5 rounded bg-red-600 hover:bg-red-700 text-white shrink-0"
+                        title="Delete this audio"
+                      >
+                        <X className="w-3 h-3" />
+                      </button>
+                    </div>
                   ))}
                 </div>
               </div>
@@ -776,14 +785,21 @@ export function AssetPanel() {
                 <div className="space-y-2">
                   {videoAssets.length === 0 && <p className="text-xs text-muted-foreground italic">No videos uploaded yet</p>}
                   {videoAssets.map((asset) => (
-                    <div key={asset.id} className="flex gap-1">
-                      <button onClick={() => addVideoTrack(asset.name, asset.src!)} className="flex-1 flex items-center gap-3 p-2 rounded bg-secondary/40 text-xs border border-transparent hover:border-blue-500/30 hover:bg-secondary/60 transition-colors text-left truncate" title="Click to add to timeline">
+                    <div key={asset.id} className="group flex items-center gap-1">
+                      <button onClick={() => addVideoTrack(asset.name, asset.src!)} className="flex-1 flex items-center gap-3 p-2 rounded bg-secondary/40 text-xs border border-transparent hover:border-blue-500/30 hover:bg-secondary/60 transition-colors text-left min-w-0" title="Click to add to timeline">
                         <Video className="w-3 h-3 text-blue-400 shrink-0" />
                         <span className="truncate">{asset.name}</span>
                       </button>
-                      <div draggable onDragStart={(e) => handleDragStart(e, asset)} className="p-2 rounded bg-secondary/40 text-xs border border-transparent hover:bg-secondary/60 cursor-grab active:cursor-grabbing flex items-center justify-center" title="Drag to canvas">
+                      <div draggable onDragStart={(e) => handleDragStart(e, asset)} className="p-2 rounded bg-secondary/40 text-xs border border-transparent hover:bg-secondary/60 cursor-grab active:cursor-grabbing flex items-center justify-center shrink-0" title="Drag to canvas">
                         <MousePointer2 className="w-3 h-3 text-muted-foreground" />
                       </div>
+                      <button
+                        onClick={() => removeUploadedAsset(asset.id)}
+                        className="opacity-0 group-hover:opacity-100 transition-opacity p-1.5 rounded bg-red-600 hover:bg-red-700 text-white shrink-0"
+                        title="Delete this video"
+                      >
+                        <X className="w-3 h-3" />
+                      </button>
                     </div>
                   ))}
                 </div>
