@@ -134,7 +134,7 @@ const LOTTIE_SCENES: LottieScene[] = [
     label: "Moving scene",
     emoji: "🌳",
     category: "Nature",
-    url: "public/wmremove-transformed.json",
+    url: "wmremove-transformed.json",
     bg: "#fbbf24",
   },
   {
@@ -142,7 +142,7 @@ const LOTTIE_SCENES: LottieScene[] = [
     label: "Cloud",
     emoji: "☁️",
     category: "Nature",
-    url: "public/cloud.json",
+    url: "cloud.json",
     bg: "#bfdbfe",
   },
   {
