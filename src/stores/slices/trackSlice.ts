@@ -5,6 +5,17 @@ import { FabricImage } from "fabric";
 import { interpolateProperties } from "../../utils/interpolation";
 import { buildCumulativeLengths, getPositionAtT } from "../../utils/pathAnimation";
 
+/**
+ * Scene-restore guard.
+ * Set to true by CanvasEditor immediately before canvas.remove() + loadFromJSON,
+ * and cleared to false inside the afterLoad callback once fabricObject refs are
+ * re-linked. While true, applyKeyframesAtTime will NOT call canvas.add() — this
+ * prevents the stale fabricObject ref from being re-added as a ghost between the
+ * canvas clear and the loadFromJSON completion.
+ */
+export let isSceneRestoring = false;
+export const setSceneRestoring = (v: boolean) => { isSceneRestoring = v; };
+
 // Animations that should loop continuously (playTimes = 0).
 // Everything NOT in this set is a one-shot transition (playTimes = 1) that
 // plays through once and holds its last frame — e.g. sit_down, wave, jump.
@@ -101,9 +112,26 @@ export const createTrackSlice: StateCreator<EditorState, [], [], TrackSlice> = (
   reorderTracks: (fromIndex, toIndex) => {
     if (fromIndex === toIndex) return;
     const state = get();
-    const tracks = [...state.tracks];
-    const [moved] = tracks.splice(fromIndex, 1);
-    tracks.splice(toIndex, 0, moved);
+    const activeSceneId = (state as any).activeSceneId as string | undefined;
+
+    // Build the scene-filtered list so the indices from the Timeline UI (which
+    // only shows current-scene tracks) map correctly to the global array.
+    const allTracks = [...state.tracks];
+    const sceneTrackIds = allTracks
+      .filter(t => !t.sceneId || t.sceneId === activeSceneId)
+      .map(t => t.id);
+
+    const movedId = sceneTrackIds[fromIndex];
+    const targetId = sceneTrackIds[toIndex];
+    if (!movedId || !targetId) return;
+
+    const globalFrom = allTracks.findIndex(t => t.id === movedId);
+    const globalTo   = allTracks.findIndex(t => t.id === targetId);
+    if (globalFrom < 0 || globalTo < 0) return;
+
+    const tracks = [...allTracks];
+    const [moved] = tracks.splice(globalFrom, 1);
+    tracks.splice(globalTo, 0, moved);
 
     // Sync Fabric canvas z-order to match the new track order.
     // Track index 0 = bottom layer, last index = top layer.
@@ -410,6 +438,9 @@ export const createTrackSlice: StateCreator<EditorState, [], [], TrackSlice> = (
 
   applyKeyframesAtTime: (time) => {
     const { tracks, canvas, selectedObject, isPlaying, selectedTrackId, setSelectedObject } = get();
+    // Only animate tracks that belong to the currently active scene
+    const activeSceneId = (get() as any).activeSceneId as string | undefined;
+    const activeTracks = tracks.filter(t => !t.sceneId || t.sceneId === activeSceneId);
 
     // Helper: given a list of sequence steps and elapsed time, return which animation is active.
     // Correctly advances the cursor through completed steps and returns the last step's animation
@@ -427,16 +458,16 @@ export const createTrackSlice: StateCreator<EditorState, [], [], TrackSlice> = (
     };
 
     if (isPlaying && selectedTrackId) {
-      const currentTrack = tracks.find(t => t.id === selectedTrackId);
+      const currentTrack = activeTracks.find(t => t.id === selectedTrackId);
       if (currentTrack && time >= currentTrack.endTime) {
-        const nextTrack = tracks.find(t => Math.abs(t.startTime - currentTrack.endTime) < 0.1 && t.id !== currentTrack.id);
+        const nextTrack = activeTracks.find(t => Math.abs(t.startTime - currentTrack.endTime) < 0.1 && t.id !== currentTrack.id);
         if (nextTrack) {
           setSelectedObject(nextTrack.id, nextTrack.fabricObject, nextTrack.type);
         }
       }
     }
 
-    tracks.forEach((track) => {
+    activeTracks.forEach((track) => {
       if (track.type === "audio" && track.audioElement) {
         if (!isPlaying) {
           const isInRange = time >= track.startTime && time <= track.endTime;
@@ -493,10 +524,22 @@ export const createTrackSlice: StateCreator<EditorState, [], [], TrackSlice> = (
         return;
       }
 
-      if (canvas && !canvas.contains(track.fabricObject)) {
-        canvas.add(track.fabricObject);
-        const bg = canvas.getObjects().find((o) => (o as any).customType === "background");
-        if (bg) canvas.moveObjectTo(bg, 0);
+      // Guard: only add if the exact object instance is not already on the canvas.
+      // Also check by _customId because after loadFromJSON re-linking, contains()
+      // may return false for the new instance even though an object with the same
+      // ID is already present (the restored one). Without this, scrubbing back to
+      // t=0 after path playback would add a second copy → visible ghost duplicate.
+      // Also skip entirely while a scene restore is in progress (canvas is being
+      // cleared + repopulated by loadFromJSON) to prevent stale refs being re-added.
+      if (canvas && track.fabricObject && !isSceneRestoring) {
+        const alreadyOnCanvas =
+          canvas.contains(track.fabricObject) ||
+          canvas.getObjects().some((o: any) => o._customId && o._customId === (track.fabricObject as any)._customId && o !== track.fabricObject);
+        if (!alreadyOnCanvas) {
+          canvas.add(track.fabricObject);
+          const bg = canvas.getObjects().find((o) => (o as any).customType === "background");
+          if (bg) canvas.moveObjectTo(bg, 0);
+        }
       }
 
       // Restore visibility for tracks hidden via opacity=0 (armature, lottie, gif)
@@ -974,9 +1017,12 @@ export const createTrackSlice: StateCreator<EditorState, [], [], TrackSlice> = (
 
   syncAudioPlayback: () => {
     const { tracks, currentTime, isPlaying } = get();
+    const activeSceneId = (get() as any).activeSceneId as string | undefined;
+    // Only sync audio for tracks in the active scene
+    const sceneTracks = tracks.filter(t => !t.sceneId || t.sceneId === activeSceneId);
 
     // Handle TTS tracks separately via speechSynthesis
-    const ttsTracks = tracks.filter(t => t.ttsParams && t.audioSrc === "tts://");
+    const ttsTracks = sceneTracks.filter(t => t.ttsParams && t.audioSrc === "tts://");
     ttsTracks.forEach((track) => {
       if (!track.ttsParams) return;
       const isInRange = isPlaying && currentTime >= track.startTime && currentTime < track.endTime;
@@ -1004,7 +1050,7 @@ export const createTrackSlice: StateCreator<EditorState, [], [], TrackSlice> = (
       }
     });
 
-    tracks.forEach((track) => {
+    sceneTracks.forEach((track) => {
       // Skip TTS tracks — handled above
       if (track.ttsParams && track.audioSrc === "tts://") return;
 

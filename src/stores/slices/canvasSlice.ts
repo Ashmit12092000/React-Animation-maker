@@ -496,6 +496,7 @@ rotateImage: () => {
       },
       type: (clonedObj as any).customType === "video" ? "video" : "visual",
       imageFilters: (clonedObj as any)._imageFilters || [],
+      sceneId: (get() as any).activeSceneId ?? undefined,
     });
 
     get().setSelectedObject(newId, clonedObj, (clonedObj as any).customType || "item");
@@ -599,6 +600,7 @@ rotateImage: () => {
       },
       type: (clonedObj as any).customType === "video" ? "video" : "visual",
       imageFilters: (clonedObj as any)._imageFilters || [],
+      sceneId: (get() as any).activeSceneId ?? undefined,
     });
 
     get().setSelectedObject(newId, clonedObj, (clonedObj as any).customType || "item");

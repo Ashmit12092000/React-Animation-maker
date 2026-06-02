@@ -13,8 +13,22 @@ import {
   Polygon,
   Path,
 } from "fabric";
+
+// Fabric v6: custom properties must be registered on the class so they are
+// included automatically in toObject() / toJSON() / clone() round-trips.
+// This replaces the old `canvas.toJSON(["_customId", ...])` API which no
+// longer accepts arguments in v6.
+FabricObject.customProperties = [
+  ...(FabricObject.customProperties ?? []),
+  "_customId",
+  "_assetName",
+  "customType",
+  "_imageFilters",
+  "propName",
+];
 import * as PIXI from "pixi.js";
 import { useEditorStore, type Asset } from "@/stores/editorStore";
+import { setSceneRestoring } from "@/stores/slices/trackSlice";
 import { ContextMenu } from "./ContextMenu";
 import { AudioFilterPanel } from "./AudioFilterPanel";
 import { PathDrawOverlay } from "./PathDrawOverlay";
@@ -1498,12 +1512,18 @@ export function CanvasEditor() {
 
     const prevId = prevSceneIdRef.current;
 
-    // 1. Save current canvas state to the scene we're leaving
+    // ── 1. ALWAYS clear stale selection before switching scenes ────────────
+    canvas.discardActiveObject();
+    setSelectedObject(null, null);
+
+    // ── 2. Save the leaving scene's canvas + thumbnail ─────────────────────
     if (prevId) {
       try {
+        // Custom properties (_customId, customType, etc.) are preserved
+        // automatically because they are registered on FabricObject.customProperties
+        // at module load time (Fabric v6 pattern).
         const json = JSON.stringify(canvas.toJSON());
         saveSceneCanvasData(prevId, json);
-        // Capture a thumbnail (small data URL)
         const thumb = canvas.toDataURL({ format: "png", multiplier: 0.2 });
         updateSceneThumbnail(prevId, thumb);
       } catch (e) {
@@ -1513,43 +1533,80 @@ export function CanvasEditor() {
 
     prevSceneIdRef.current = activeSceneId;
 
-    // 2. Load the new scene's canvas state (if it has one)
+    // ── 3. Restore or initialise the incoming scene ───────────────────────
     const saved = getSceneCanvasData(activeSceneId);
+
+    const afterLoad = () => {
+      // Re-link fabricObject refs on every track belonging to this scene.
+      // loadFromJSON creates brand-new FabricObject instances, so the old
+      // refs stored in tracks are stale after every scene restore.
+      const store = useEditorStore.getState();
+      const sceneTracks = store.tracks.filter(t => t.sceneId === activeSceneId);
+      const canvasObjects = canvas.getObjects();
+
+      sceneTracks.forEach(track => {
+        // Find all objects on canvas that claim this track's ID.
+        // There should only ever be one; remove any extras (ghosts from
+        // a previous scene switch where canvas wasn't cleared properly).
+        const matches = canvasObjects.filter(
+          (o: any) => o._customId === track.id
+        );
+        // Keep the last (most recently added = restored by loadFromJSON)
+        // and remove any earlier duplicates.
+        if (matches.length > 1) {
+          matches.slice(0, -1).forEach(ghost => canvas.remove(ghost));
+        }
+        const freshObj = matches[matches.length - 1];
+        if (freshObj && freshObj !== track.fabricObject) {
+          store.updateTrack(track.id, { fabricObject: freshObj });
+        }
+      });
+
+      // Scene restore is complete — applyKeyframesAtTime may resume canvas.add
+      setSceneRestoring(false);
+
+      // Ensure bg colour is correct
+      const sc = useEditorStore.getState().scenes.find(s => s.id === activeSceneId);
+      if (sc) {
+        const bgObj = canvas.getObjects().find((o: any) => (o as any).customType === "background");
+        if (!bgObj) {
+          const bg = new Rect({
+            left: 0, top: 0,
+            width: canvas.getWidth(), height: canvas.getHeight(),
+            fill: sc.bg,
+            selectable: false, evented: false,
+            lockMovementX: true, lockMovementY: true,
+            lockScalingX: true, lockScalingY: true,
+            lockRotation: true, hasControls: false, hasBorders: false,
+          });
+          (bg as any).customType = "background";
+          canvas.add(bg);
+          canvas.sendObjectToBack(bg);
+        } else {
+          (bgObj as any).set({ fill: sc.bg });
+        }
+      }
+      canvas.renderAll();
+    };
 
     if (saved) {
       try {
-        canvas.loadFromJSON(saved, () => {
-          canvas.renderAll();
-          // Re-apply scene background colour
-          const sc = useEditorStore.getState().scenes.find(s => s.id === activeSceneId);
-          if (sc) {
-            const bgObj = canvas.getObjects().find((o: any) => (o as any).customType === "background");
-            if (!bgObj) {
-              // Apply solid bg if no background object exists
-              const bg = new Rect({
-                left: 0, top: 0,
-                width: canvas.getWidth(), height: canvas.getHeight(),
-                fill: sc.bg,
-                selectable: false, evented: false,
-                lockMovementX: true, lockMovementY: true,
-                lockScalingX: true, lockScalingY: true,
-                lockRotation: true, hasControls: false, hasBorders: false,
-              });
-              (bg as any).customType = "background";
-              canvas.add(bg);
-              canvas.sendObjectToBack(bg);
-              canvas.renderAll();
-            }
-          }
-        });
+        // Block applyKeyframesAtTime from re-adding stale fabricObject refs
+        // while the canvas is being cleared and repopulated.
+        setSceneRestoring(true);
+        // MUST clear first — Fabric v6 loadFromJSON appends objects rather
+        // than replacing them. Without this, objects from the previous scene
+        // stay on canvas alongside the restored ones, producing ghost duplicates
+        // that move independently during path animation playback.
+        canvas.remove(...canvas.getObjects());
+        canvas.loadFromJSON(saved, afterLoad);
       } catch (e) {
+        setSceneRestoring(false); // ensure flag is always cleared on error
         console.warn("[Scene] Failed to restore canvas snapshot", e);
       }
     } else if (!sceneInitializedRef.current.has(activeSceneId)) {
-      // New scene — clear canvas and apply its background colour
+      // Brand-new scene — start with a blank canvas + background rect
       sceneInitializedRef.current.add(activeSceneId);
-
-      // Clear all objects
       canvas.remove(...canvas.getObjects());
 
       const sc = useEditorStore.getState().scenes.find(s => s.id === activeSceneId);
@@ -1569,7 +1626,7 @@ export function CanvasEditor() {
       }
       canvas.renderAll();
     }
-  }, [activeSceneId, saveSceneCanvasData, getSceneCanvasData, updateSceneThumbnail]);
+  }, [activeSceneId, saveSceneCanvasData, getSceneCanvasData, updateSceneThumbnail, setSelectedObject]);
 
   // When scene bg changes (from Backgrounds tab), update canvas background live
   useEffect(() => {

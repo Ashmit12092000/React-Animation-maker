@@ -110,10 +110,14 @@ export function Timeline() {
     reorderTracks,
     removeAudioFiltersFromTrack,
     activeSceneId,
+    scenes,
+    setActiveScene,
   } = useEditorStore();
 
   // Only show tracks that belong to the active scene (or legacy tracks with no sceneId)
   const sceneTracks = tracks.filter(t => !t.sceneId || t.sceneId === activeSceneId);
+  // Active scene metadata for the header chip
+  const activeScene = scenes.find(s => s.id === activeSceneId);
 
   const timelineRef = useRef<HTMLDivElement>(null);
   const scrollContainerRef = useRef<HTMLDivElement>(null);
@@ -485,11 +489,115 @@ export function Timeline() {
       style={{
         background: "linear-gradient(180deg, #0f1117 0%, #0a0d14 100%)",
         borderTop: "1px solid rgba(255,255,255,0.07)",
-        height: 260,
-        minHeight: 260,
-        maxHeight: 260,
+        height: 284,
+        minHeight: 284,
+        maxHeight: 284,
       }}
     >
+      {/* ── Scene Context Bar (Canva/Animaker-style) ─────────────────────── */}
+      <div
+        className="flex items-center gap-1 px-2 flex-shrink-0 overflow-x-auto"
+        style={{
+          height: 28,
+          minHeight: 28,
+          borderBottom: "1px solid rgba(255,255,255,0.06)",
+          background: "rgba(0,0,0,0.25)",
+          scrollbarWidth: "none",
+        }}
+      >
+        {/* Left arrow */}
+        <button
+          title="Previous scene"
+          onClick={() => {
+            const idx = scenes.findIndex(s => s.id === activeSceneId);
+            if (idx > 0) setActiveScene(scenes[idx - 1].id);
+          }}
+          disabled={scenes.findIndex(s => s.id === activeSceneId) === 0}
+          className="flex-shrink-0 w-5 h-5 flex items-center justify-center rounded text-gray-500 hover:text-gray-300 hover:bg-white/8 disabled:opacity-25 disabled:cursor-not-allowed transition-all"
+        >
+          <svg width="8" height="10" viewBox="0 0 8 10" fill="none"><path d="M6.5 1L1.5 5L6.5 9" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/></svg>
+        </button>
+
+        {/* Scene pills */}
+        <div className="flex items-center gap-1 flex-1 min-w-0">
+          {scenes.map((sc, idx) => {
+            const isActive = sc.id === activeSceneId;
+            const scTrackCount = tracks.filter(t => !t.sceneId || t.sceneId === sc.id).length;
+            return (
+              <button
+                key={sc.id}
+                onClick={() => setActiveScene(sc.id)}
+                title={`${sc.label} · ${scTrackCount} track${scTrackCount !== 1 ? "s" : ""}`}
+                className="flex-shrink-0 flex items-center gap-1.5 px-2 h-5 rounded transition-all"
+                style={{
+                  background: isActive
+                    ? "rgba(99,102,241,0.22)"
+                    : "rgba(255,255,255,0.04)",
+                  border: isActive
+                    ? "1px solid rgba(99,102,241,0.55)"
+                    : "1px solid rgba(255,255,255,0.07)",
+                  color: isActive ? "#a5b4fc" : "#4b5563",
+                }}
+              >
+                {/* Scene color swatch */}
+                <span
+                  className="w-2 h-2 rounded-sm flex-shrink-0"
+                  style={{ background: sc.bg ?? "#334155", border: "1px solid rgba(255,255,255,0.15)" }}
+                />
+                <span className="text-[10px] font-semibold whitespace-nowrap" style={{ color: isActive ? "#c7d2fe" : "#6b7280" }}>
+                  {idx + 1}. {sc.label}
+                </span>
+                {scTrackCount > 0 && (
+                  <span
+                    className="text-[9px] font-medium px-1 rounded-full flex-shrink-0"
+                    style={{
+                      background: isActive ? "rgba(99,102,241,0.3)" : "rgba(255,255,255,0.06)",
+                      color: isActive ? "#a5b4fc" : "#374151",
+                    }}
+                  >
+                    {scTrackCount}
+                  </span>
+                )}
+              </button>
+            );
+          })}
+        </div>
+
+        {/* Right arrow */}
+        <button
+          title="Next scene"
+          onClick={() => {
+            const idx = scenes.findIndex(s => s.id === activeSceneId);
+            if (idx < scenes.length - 1) setActiveScene(scenes[idx + 1].id);
+          }}
+          disabled={scenes.findIndex(s => s.id === activeSceneId) === scenes.length - 1}
+          className="flex-shrink-0 w-5 h-5 flex items-center justify-center rounded text-gray-500 hover:text-gray-300 hover:bg-white/8 disabled:opacity-25 disabled:cursor-not-allowed transition-all"
+        >
+          <svg width="8" height="10" viewBox="0 0 8 10" fill="none"><path d="M1.5 1L6.5 5L1.5 9" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/></svg>
+        </button>
+
+        {/* Separator + active scene duration badge */}
+        {activeScene && (
+          <>
+            <div className="w-px h-3.5 flex-shrink-0 mx-1" style={{ background: "rgba(255,255,255,0.07)" }} />
+            <span
+              className="flex-shrink-0 flex items-center gap-1 text-[10px] font-mono tabular-nums px-1.5 h-5 rounded"
+              style={{ background: "rgba(255,255,255,0.04)", color: "#475569", border: "1px solid rgba(255,255,255,0.05)" }}
+            >
+              <svg width="8" height="8" viewBox="0 0 8 8" fill="none" className="opacity-50"><circle cx="4" cy="4" r="3" stroke="currentColor" strokeWidth="1.2"/><line x1="4" y1="4" x2="4" y2="2" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round"/><line x1="4" y1="4" x2="5.5" y2="4" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round"/></svg>
+              {(activeScene.duration / 1000).toFixed(1)}s
+            </span>
+            {activeScene.transition && activeScene.transition !== "none" && (
+              <span
+                className="flex-shrink-0 text-[9px] font-medium px-1.5 h-5 flex items-center rounded"
+                style={{ background: "rgba(139,92,246,0.12)", color: "#7c3aed", border: "1px solid rgba(139,92,246,0.2)" }}
+              >
+                ↝ {activeScene.transition}
+              </span>
+            )}
+          </>
+        )}
+      </div>
       <div
         className="flex items-center gap-2 px-3 py-2 flex-wrap"
         style={{ borderBottom: "1px solid rgba(255,255,255,0.06)" }}
