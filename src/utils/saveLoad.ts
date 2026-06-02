@@ -494,12 +494,14 @@ export async function loadProject(
         height: fo!.charH ?? 300,
         scaleX: fo!.scaleX, scaleY: fo!.scaleY,
         angle: fo!.angle,   opacity: fo!.opacity,
-        fill:        "rgba(100,100,255,0.08)",
-        stroke:      "rgba(100,100,255,0.5)",
+        fill:        "rgba(100,100,255,0.0)",
+        stroke:      "transparent",
         strokeWidth: 1,
         strokeDashArray: [4, 4],
         rx: 4, ry: 4,
       });
+      (proxy as any)._proxyStroke = "rgba(100,100,255,0.5)";
+      (proxy as any)._proxyFill   = "rgba(100,100,255,0.08)";
       (proxy as any)._customId  = st.id;
       (proxy as any)._assetName = st.name;
       (proxy as any).customType = "character";
@@ -561,11 +563,13 @@ export async function loadProject(
         width: fo!.width ?? 120, height: fo!.height ?? 100,
         scaleX: fo!.scaleX, scaleY: fo!.scaleY,
         angle: fo!.angle, opacity: fo!.opacity,
-        fill:        "rgba(249,115,22,0.08)",
-        stroke:      "rgba(249,115,22,0.5)",
+        fill:        "rgba(249,115,22,0.0)",
+        stroke:      "transparent",
         strokeWidth: 1, strokeDashArray: [4, 4],
         rx: 4, ry: 4,
       });
+      (proxy as any)._proxyStroke = "rgba(249,115,22,0.5)";
+      (proxy as any)._proxyFill   = "rgba(249,115,22,0.08)";
       (proxy as any)._customId    = st.id;
       (proxy as any)._assetName   = st.name;
       (proxy as any).customType   = "prop";

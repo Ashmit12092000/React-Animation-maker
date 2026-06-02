@@ -181,6 +181,9 @@ export const createTrackSlice: StateCreator<EditorState, [], [], TrackSlice> = (
     set((state) => {
       const track = state.tracks.find((t) => t.id === id);
       if (track?.fabricObject && state.canvas) {
+        // Mark before canvas.remove() so object:removed can distinguish a real
+        // deletion from a temporary timeline remove/re-add.
+        (track.fabricObject as any)._pendingDelete = true;
         state.canvas.remove(track.fabricObject);
       }
       if (track?.audioElement) {
@@ -747,9 +750,15 @@ export const createTrackSlice: StateCreator<EditorState, [], [], TrackSlice> = (
               if (display.animation.lastAnimationName !== arrivalAnim) {
                 display.animation.play(arrivalAnim, playTimes(arrivalAnim));
               }
-            } else if (isPlaying) {
-              // Path in progress → only switch during active playback,
-              // not while scrubbing, so pausing doesn't snap the anim.
+            } else if (clampedT > 0 || isPlaying) {
+              // Path in progress — switch to the travel animation.
+              // We allow this when:
+              //   • isPlaying is true (normal timeline playback), OR
+              //   • clampedT > 0 (preview drives time without setting isPlaying,
+              //     but the character is already moving along the path).
+              // This intentionally excludes clampedT===0 && !isPlaying so that
+              // manually scrubbing back to the very start does not snap to the
+              // travel anim before Play is pressed.
               if (display.animation.lastAnimationName !== action.travelAnim) {
                 display.animation.play(action.travelAnim, playTimes(action.travelAnim));
               }
@@ -794,7 +803,10 @@ export const createTrackSlice: StateCreator<EditorState, [], [], TrackSlice> = (
     } else {
       audio.addEventListener("loadedmetadata", setDuration);
     }
-    set((state) => ({ tracks: [...state.tracks, { ...newTrack, volume: 1 }] }));
+    set((state) => {
+      const sceneId = (state as any).activeSceneId as string | undefined;
+      return { tracks: [...state.tracks, { ...newTrack, sceneId, volume: 1 }] };
+    });
   },
 
   addTTSTrack: (name, ttsParams, duration) => {
@@ -806,7 +818,10 @@ export const createTrackSlice: StateCreator<EditorState, [], [], TrackSlice> = (
       type: "audio", audioElement: null, audioSrc: "tts://", volume: 1,
       mediaDuration: duration, ttsParams,
     };
-    set((state) => ({ tracks: [...state.tracks, newTrack] }));
+    set((state) => {
+      const sceneId = (state as any).activeSceneId as string | undefined;
+      return { tracks: [...state.tracks, { ...newTrack, sceneId }] };
+    });
   },
 
   addVideoTrack: (name, videoSrc) => {
@@ -822,7 +837,10 @@ export const createTrackSlice: StateCreator<EditorState, [], [], TrackSlice> = (
       initialState: { left: 0, top: 0, scaleX: 1, scaleY: 1, angle: 0, opacity: 1 },
       type: "video", audioElement: null, audioSrc: videoSrc, volume: 1,
     };
-    set((state) => ({ tracks: [...state.tracks, newTrack] }));
+    set((state) => {
+      const sceneId = (state as any).activeSceneId as string | undefined;
+      return { tracks: [...state.tracks, { ...newTrack, sceneId }] };
+    });
 
     const onMetadataLoaded = () => {
       const newDuration = video.duration;

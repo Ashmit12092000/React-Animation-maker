@@ -5,12 +5,15 @@ import { Asset } from "../../types";
 export interface AssetSlice {
   uploadedAssets: Asset[];
   addUploadedAsset: (asset: Asset) => void;
+  removeUploadedAsset: (assetId: string) => void;
 }
 
 export const createAssetSlice: StateCreator<EditorState, [], [], AssetSlice> = (set) => ({
   uploadedAssets: [],
   addUploadedAsset: (asset) =>
     set((state) => ({ uploadedAssets: [...state.uploadedAssets, asset] })),
+  removeUploadedAsset: (assetId) =>
+    set((state) => ({ uploadedAssets: state.uploadedAssets.filter((a) => a.id !== assetId) })),
 });
 
 // Constants moved here

@@ -21,6 +21,7 @@ import {
   Eraser,
   Film,
   Loader2,
+  X,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -524,7 +525,7 @@ export function AssetPanel() {
   const [activeTab, setActiveTab]     = useState<PanelTab>("elements");
 
   const {
-    addAudioTrack, tracks, addUploadedAsset, addVideoTrack,
+    addAudioTrack, tracks, addUploadedAsset, removeUploadedAsset, addVideoTrack,
     uploadedAssets, drawingEnabled, drawingColor, drawingBrushSize,
     setDrawingEnabled, setDrawingColor, setDrawingBrushSize,
     eraserEnabled, eraserSize, setEraserEnabled, setEraserSize,
@@ -738,6 +739,16 @@ export function AssetPanel() {
                       <div key={asset.id} draggable onDragStart={(e) => handleDragStart(e, asset)} className="group relative aspect-square rounded-xl bg-secondary border border-panel-border hover:border-primary/50 cursor-grab active:cursor-grabbing overflow-hidden transition-all" title={`Drag to canvas · ${asset.name}`}>
                         <img src={asset.src} alt={asset.name} className="w-full h-full object-cover" style={{ imageRendering: (asset as any).isGif ? "auto" : undefined }} />
                         {(asset as any).isGif && <div className="absolute top-1 left-1 bg-black/70 text-[9px] font-bold text-pink-300 px-1.5 py-0.5 rounded-full leading-none border border-pink-400/30">GIF</div>}
+                        <button
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            removeUploadedAsset(asset.id);
+                          }}
+                          className="absolute top-1 right-1 opacity-0 group-hover:opacity-100 transition-opacity bg-red-600 hover:bg-red-700 text-white rounded-full p-1 transition-colors"
+                          title="Delete this image"
+                        >
+                          <X className="w-3 h-3" />
+                        </button>
                         <div className="absolute inset-x-0 bottom-0 bg-black/60 p-1 translate-y-full group-hover:translate-y-0 transition-transform">
                           <p className="text-[10px] text-white text-center truncate">{asset.name}</p>
                         </div>

@@ -112,6 +112,8 @@ export interface TrackObject {
   characterAnimation?: string | null;        // current DragonBones anim e.g. "Idle","walk","run"
   pendingPathAction?: CharacterPathAction | null;
   sequenceAction?: CharacterSequenceAction | null; // set by commitCharacterSequenceAction
+  // Track state
+  trimmed?: boolean; // indicates if the track has been trimmed
 }
 
 export interface Asset {

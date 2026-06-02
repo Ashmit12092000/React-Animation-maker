@@ -257,7 +257,14 @@ export function ScenePreviewPlayer({ onClose }: { onClose: () => void }) {
       const next = prev + dt;
 
       if (next >= sc.duration) {
-        // Scene finished — move to next or stop
+        // Scene finished — call applyKF at the exact end time so that path
+        // characters reach clampedT=1 and trigger their arrival animation
+        // (idle/keep) before we leave this scene.
+        const endSec = sc.duration / 1000;
+        setCurrentTime(endSec);
+        applyKF(endSec);
+
+        // Move to next or stop
         const nextIdx = idx + 1;
         if (nextIdx >= scenes.length) {
           // All scenes done — stop

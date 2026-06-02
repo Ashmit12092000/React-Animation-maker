@@ -20,6 +20,7 @@ import {
   VolumeX,
   Zap,
   Wand2,
+  Scissors,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { KeyframeEditor } from "./KeyframeEditor";
@@ -473,12 +474,23 @@ export function Timeline() {
       return;
     }
     saveCheckpoint();
+    
+    const selectedTrack = tracks.find((t) => t.id === trimDialog.trackId);
+    if (!selectedTrack) return;
+
+    const trimmedDuration = newEndTime - newStartTime;
+    const originalStartTime = selectedTrack.startTime;
+    const existingMediaOffset = selectedTrack.mediaOffset || 0;
+    const mediaOffsetAdjustment = (newStartTime - originalStartTime) + existingMediaOffset;
+
     updateTrack(trimDialog.trackId, {
-      startTime: newStartTime,
-      endTime: newEndTime,
+      startTime: 0,
+      endTime: trimmedDuration,
+      mediaOffset: mediaOffsetAdjustment,
+      trimmed: true,
     });
     setTrimDialog(null);
-    toast.success("Track trimmed");
+    toast.success("Track trimmed and placed at 0 seconds");
   };
 
   const timeMarkers = isFinite(visibleDuration) ? Array.from({ length: Math.ceil(visibleDuration) + 1 }, (_, i) => i) : [];
@@ -881,6 +893,12 @@ export function Timeline() {
                 {track.type === "audio" && <Music className="w-3 h-3 flex-shrink-0 opacity-70" style={{ color: c.text }} />}
                 {track.type === "video" && <Video className="w-3 h-3 flex-shrink-0 opacity-70" style={{ color: c.text }} />}
                 {track.pathAnimation && <Route className="w-3 h-3 flex-shrink-0 opacity-80" style={{ color: "#c4b5fd" }} />}
+                {track.trimmed && (
+                  <span title="Track has been trimmed" className="flex items-center gap-1">
+                    <Scissors className="w-3 h-3 flex-shrink-0" style={{ color: "#f59e0b" }} />
+                    <span className="text-xs font-medium text-amber-600" style={{ fontSize: "10px" }}>Trimmed</span>
+                  </span>
+                )}
                 {track.type === "audio" && ((track.audioFilterKeys?.length ?? 0) + (track.audioCleaningKeys?.length ?? 0) > 0) && (
                   <span title="Filters applied">
                     <Wand2 className="w-3 h-3 flex-shrink-0" style={{ color: "#a78bfa" }} />

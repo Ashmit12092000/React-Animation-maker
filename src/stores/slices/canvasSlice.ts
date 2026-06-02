@@ -346,6 +346,9 @@ rotateImage: () => {
           selGroup.forEachObject((obj: FabricObject) => {
             const customId = (obj as any)._customId;
             if (customId) idsToRemove.push(customId);
+            // Mark before canvas.remove() so object:removed can distinguish a
+            // real deletion from a temporary timeline remove/re-add.
+            (obj as any)._pendingDelete = true;
             try { if (canvas.contains(obj)) canvas.remove(obj); } catch (err) { }
           });
 

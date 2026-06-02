@@ -217,12 +217,28 @@ export function CanvasEditor() {
       }
     });
 
+    // Helper: show/hide dotted proxy border based on selection state
+    const showProxyBorder = (obj: FabricObject) => {
+      if ((obj as any)._proxyStroke) {
+        obj.set({ stroke: (obj as any)._proxyStroke, fill: (obj as any)._proxyFill });
+        obj.dirty = true;
+      }
+    };
+    const hideProxyBorder = (obj: FabricObject) => {
+      if ((obj as any)._proxyStroke) {
+        obj.set({ stroke: "transparent", fill: "rgba(0,0,0,0)" });
+        obj.dirty = true;
+      }
+    };
+
     canvas.on("selection:created", (e) => {
       handleSelectionLocks();
 
       const obj = e.selected?.[0];
       if (obj) {
         setSelectedObject((obj as any)._customId || null, obj);
+        showProxyBorder(obj);
+        canvas.requestRenderAll();
       }
 
       // Ensure background stays back
@@ -257,7 +273,11 @@ export function CanvasEditor() {
       const obj = e.selected?.[0];
       if (obj) {
         setSelectedObject((obj as any)._customId || null, obj);
+        showProxyBorder(obj);
       }
+      // Hide border on any proxy that was just deselected
+      e.deselected?.forEach((deselObj: FabricObject) => hideProxyBorder(deselObj));
+      canvas.requestRenderAll();
       const bg = canvas
         .getObjects()
         .find((o) => (o as any).customType === "background");
@@ -266,6 +286,9 @@ export function CanvasEditor() {
 
     canvas.on("selection:cleared", () => {
       setSelectedObject(null, null);
+      // Hide the dotted border on all proxy rects when nothing is selected
+      canvas.getObjects().forEach((o: FabricObject) => hideProxyBorder(o));
+      canvas.requestRenderAll();
     });
 
     // Boundary Constraints
@@ -435,12 +458,13 @@ export function CanvasEditor() {
       if (obj && ((obj as any).customType === "character" || (obj as any).customType === "prop")) {
         const display = (obj as any).armatureDisplay;
         if (display) {
-          // Only fully dispose when the track itself is being deleted (removeTrack),
-          // not when the timeline temporarily removes/hides the proxy rect.
-          // We detect a real deletion by the absence of a matching track in the store.
+          // Use the _pendingDelete flag (set by removeTrack / deleteSelected BEFORE
+          // canvas.remove) to distinguish a real deletion from a temporary
+          // remove/re-add the timeline does while scrubbing.
+          const isPendingDelete = !!(obj as any)._pendingDelete;
           const customId = (obj as any)._customId;
           const trackStillExists = !!useEditorStore.getState().tracks.find((t) => t.id === customId);
-          if (!trackStillExists) {
+          if (isPendingDelete || !trackStillExists) {
             const pixiApp = pixiAppRef.current;
             if (pixiApp && pixiApp.stage.children.includes(display)) {
               pixiApp.stage.removeChild(display);
@@ -449,8 +473,8 @@ export function CanvasEditor() {
             armatureDisplaysRef.current = armatureDisplaysRef.current.filter((d) => d !== display);
             (obj as any).armatureDisplay = null;
           }
-          // If track still exists, keep the display alive — it will be re-synced
-          // by applyKeyframesAtTime on the next frame.
+          // If track still exists and not pending delete, keep the display alive —
+          // it will be re-synced by applyKeyframesAtTime on the next frame.
         }
       }
 
@@ -1093,18 +1117,21 @@ export function CanvasEditor() {
 
       // Semi-transparent proxy rect so the user can see/select/move the character.
       // The actual pixels are rendered by PIXI on the overlay canvas.
+      // Stroke is hidden by default and only shown when the object is selected.
       const proxy = new Rect({
         left:        baseLeft,
         top:         baseTop,
         width:       charW,
         height:      charH,
-        fill:        "rgba(100,100,255,0.08)",
-        stroke:      "rgba(100,100,255,0.5)",
+        fill:        "rgba(100,100,255,0.0)",
+        stroke:      "transparent",
         strokeWidth: 1,
         strokeDashArray: [4, 4],
         rx: 4,
         ry: 4,
       });
+      (proxy as any)._proxyStroke = "rgba(100,100,255,0.5)";
+      (proxy as any)._proxyFill   = "rgba(100,100,255,0.08)";
       addObjectToCanvas(proxy, id, asset);
 
       (async () => {
@@ -1178,13 +1205,15 @@ export function CanvasEditor() {
         top:         baseTop,
         width:       PLACEHOLDER_W,
         height:      PLACEHOLDER_H,
-        fill:        "rgba(249,115,22,0.08)",
-        stroke:      "rgba(249,115,22,0.5)",
+        fill:        "rgba(249,115,22,0.0)",
+        stroke:      "transparent",
         strokeWidth: 1,
         strokeDashArray: [4, 4],
         rx: 4,
         ry: 4,
       });
+      (proxy as any)._proxyStroke = "rgba(249,115,22,0.5)";
+      (proxy as any)._proxyFill   = "rgba(249,115,22,0.08)";
       addObjectToCanvas(proxy, id, asset);
 
       (async () => {
@@ -1538,6 +1567,11 @@ export function CanvasEditor() {
     canvas.discardActiveObject();
     setSelectedObject(null, null);
 
+    // Hide ALL PIXI armature displays immediately on scene switch.
+    // afterLoad / the new-scene branch will selectively re-show the ones that
+    // belong to the incoming scene, preventing cross-scene bleed.
+    armatureDisplaysRef.current.forEach(d => { d.visible = false; });
+
     // ── 2. Save the leaving scene's canvas + thumbnail ─────────────────────
     if (prevId) {
       try {
@@ -1641,6 +1675,18 @@ export function CanvasEditor() {
             if (old.propOffsetY != null) freshObj.propOffsetY = old.propOffsetY;
           }
           existingDisplay.visible = true;
+          // Restore the saved animation — the display may have been left in a
+          // different animation by preview playback (e.g. mid-walk when the
+          // preview ended). Always replay the track's stored animation so the
+          // character looks correct when returning to the canvas.
+          const savedAnim = track.characterAnimation;
+          if (
+            savedAnim &&
+            existingDisplay.animation.animationNames.includes(savedAnim) &&
+            existingDisplay.animation.lastAnimationName !== savedAnim
+          ) {
+            existingDisplay.animation.play(savedAnim, 0);
+          }
         } else {
           // Fallback: queue a full armature re-load
           const pa: import("../../utils/saveLoad").PendingArmature = {
@@ -1690,6 +1736,24 @@ export function CanvasEditor() {
       useEditorStore.getState().applyKeyframesAtTime(
         useEditorStore.getState().currentTime
       );
+
+      // Hide proxy borders on all character/prop rects — loadFromJSON may have
+      // restored the old (visible) stroke from the saved JSON snapshot.
+      canvas.getObjects().forEach((o: any) => {
+        if (o.customType === "character" || o.customType === "prop") {
+          if (!o._proxyStroke) {
+            // Back-fill metadata for objects saved before this fix
+            o._proxyStroke = o.customType === "character"
+              ? "rgba(100,100,255,0.5)"
+              : "rgba(249,115,22,0.5)";
+            o._proxyFill = o.customType === "character"
+              ? "rgba(100,100,255,0.08)"
+              : "rgba(249,115,22,0.08)";
+          }
+          o.set({ stroke: "transparent", fill: "rgba(0,0,0,0)" });
+          o.dirty = true;
+        }
+      });
 
       canvas.renderAll();
     };
