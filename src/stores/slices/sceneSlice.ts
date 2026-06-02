@@ -18,6 +18,8 @@ export interface SceneItem {
   duration: number;
   /** Solid background colour */
   bg: string;
+  /** Optional image URL used as background (overrides solid bg colour on canvas) */
+  bgImageUrl?: string;
   /** Optional Lottie JSON URL used as animated background */
   lottieUrl?: string;
   lottieEmoji?: string;
@@ -84,13 +86,14 @@ export const createSceneSlice: StateCreator<EditorState, [], [], SceneSlice> = (
     const id = mkSceneId();
     const newScene: SceneItem = {
       id,
-      label:      partial.label    ?? `Scene ${scenes.length + 1}`,
-      duration:   partial.duration ?? 5000,
-      bg:         partial.bg       ?? BG_PRESETS[scenes.length % BG_PRESETS.length],
-      lottieUrl:  partial.lottieUrl,
+      label:       partial.label    ?? `Scene ${scenes.length + 1}`,
+      duration:    partial.duration ?? 5000,
+      bg:          partial.bg       ?? BG_PRESETS[scenes.length % BG_PRESETS.length],
+      bgImageUrl:  partial.bgImageUrl,
+      lottieUrl:   partial.lottieUrl,
       lottieEmoji: partial.lottieEmoji,
-      thumbnail:  partial.thumbnail,
-      transition: "fade",
+      thumbnail:   partial.thumbnail,
+      transition:  "fade",
     };
     set((s) => ({ scenes: [...s.scenes, newScene], activeSceneId: id }));
   },

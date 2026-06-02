@@ -455,10 +455,11 @@ function CatalogueEntry({
 
 function AddSceneModal({ onClose, onAdd }: {
   onClose: () => void;
-  onAdd: (opts: { bg: string; thumbnail?: string; label?: string }) => void;
+  onAdd: (opts: { bg: string; thumbnail?: string; bgImageUrl?: string; label?: string }) => void;
 }) {
-  const [selectedBg, setSelectedBg] = useState("#0f172a");
+  const [selectedBg, setSelectedBg] = useState("black");
   const [previewImg, setPreviewImg] = useState<string | null>(null);
+  const [bgImageUrl, setBgImageUrl] = useState<string | null>(null);
   const fileRef = useRef<HTMLInputElement>(null);
 
   const handleImageUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -466,11 +467,12 @@ function AddSceneModal({ onClose, onAdd }: {
     if (!file) return;
     const url = URL.createObjectURL(file);
     setPreviewImg(url);
+    setBgImageUrl(url);
     setSelectedBg("#000000");
   };
 
   const handleAdd = () => {
-    onAdd({ bg: selectedBg, thumbnail: previewImg ?? undefined });
+    onAdd({ bg: selectedBg, thumbnail: previewImg ?? undefined, bgImageUrl: bgImageUrl ?? undefined });
     onClose();
   };
 
@@ -527,7 +529,7 @@ function AddSceneModal({ onClose, onAdd }: {
 
         {previewImg && (
           <button
-            onClick={() => { setPreviewImg(null); setSelectedBg("#0f172a"); }}
+            onClick={() => { setPreviewImg(null); setBgImageUrl(null); setSelectedBg("#0f172a"); }}
             className="w-full text-[9px] text-red-400 hover:text-red-300 mb-3 text-center"
           >
             Remove image
@@ -574,8 +576,8 @@ function StoryboardTab() {
 
   const handleAddScene = () => setShowAddModal(true);
 
-  const handleModalAdd = ({ bg, thumbnail }: { bg: string; thumbnail?: string }) => {
-    addScene({ bg, thumbnail });
+  const handleModalAdd = ({ bg, thumbnail, bgImageUrl }: { bg: string; thumbnail?: string; bgImageUrl?: string }) => {
+    addScene({ bg, thumbnail, bgImageUrl });
     setTimeout(() => stripRef.current?.scrollTo({ left: 99999, behavior: "smooth" }), 50);
   };
 

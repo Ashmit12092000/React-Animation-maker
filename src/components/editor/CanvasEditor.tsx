@@ -1725,7 +1725,8 @@ export function CanvasEditor() {
           (bg as any).customType = "background";
           canvas.add(bg);
           canvas.sendObjectToBack(bg);
-        } else {
+        } else if ((bgObj as any).type !== "image") {
+          // Only update the fill when the background is a colour rect, not an image
           (bgObj as any).set({ fill: sc.bg });
         }
       }
@@ -1784,31 +1785,70 @@ export function CanvasEditor() {
 
       const sc = useEditorStore.getState().scenes.find(s => s.id === activeSceneId);
       if (sc) {
-        const bg = new Rect({
-          left: 0, top: 0,
-          width: canvas.getWidth(), height: canvas.getHeight(),
-          fill: sc.bg,
-          selectable: false, evented: false,
-          lockMovementX: true, lockMovementY: true,
-          lockScalingX: true, lockScalingY: true,
-          lockRotation: true, hasControls: false, hasBorders: false,
-        });
-        (bg as any).customType = "background";
-        canvas.add(bg);
-        canvas.sendObjectToBack(bg);
+        if (sc.bgImageUrl) {
+          // Scene was created with an uploaded image — load it as a FabricImage background
+          const img = new Image();
+          img.onload = () => {
+            const canvasW = canvas.getWidth();
+            const canvasH = canvas.getHeight();
+            const naturalW = img.naturalWidth || img.width || 1;
+            const naturalH = img.naturalHeight || img.height || 1;
+            const scale = Math.max(canvasW / naturalW, canvasH / naturalH);
+            const renderedW = naturalW * scale;
+            const renderedH = naturalH * scale;
+            const fabricImg = new FabricImage(img, {
+              left: (canvasW - renderedW) / 2,
+              top:  (canvasH - renderedH) / 2,
+              scaleX: scale,
+              scaleY: scale,
+              originX: "left",
+              originY: "top",
+              selectable: false,
+              evented: false,
+              lockMovementX: true,
+              lockMovementY: true,
+              lockScalingX: true,
+              lockScalingY: true,
+              lockRotation: true,
+              hasControls: false,
+              hasBorders: false,
+            });
+            (fabricImg as any).customType = "background";
+            canvas.add(fabricImg);
+            canvas.moveObjectTo(fabricImg, 0);
+            canvas.renderAll();
+          };
+          img.crossOrigin = "anonymous";
+          img.src = sc.bgImageUrl;
+        } else {
+          const bg = new Rect({
+            left: 0, top: 0,
+            width: canvas.getWidth(), height: canvas.getHeight(),
+            fill: sc.bg,
+            selectable: false, evented: false,
+            lockMovementX: true, lockMovementY: true,
+            lockScalingX: true, lockScalingY: true,
+            lockRotation: true, hasControls: false, hasBorders: false,
+          });
+          (bg as any).customType = "background";
+          canvas.add(bg);
+          canvas.sendObjectToBack(bg);
+        }
       }
       canvas.renderAll();
     }
   }, [activeSceneId, saveSceneCanvasData, getSceneCanvasData, updateSceneThumbnail, setSelectedObject]);
 
-  // When scene bg changes (from Backgrounds tab), update canvas background live
+  // When scene bg changes (from Backgrounds tab), update canvas background live.
+  // Only apply the colour fill when the current background is a Rect (solid colour),
+  // not when it is a FabricImage that the user pinned with "Set as Background".
   useEffect(() => {
     const canvas = fabricRef.current;
     if (!canvas) return;
     const sc = scenes.find(s => s.id === activeSceneId);
     if (!sc) return;
     const bgObj = canvas.getObjects().find((o: any) => (o as any).customType === "background");
-    if (bgObj) {
+    if (bgObj && (bgObj as any).type !== "image") {
       (bgObj as any).set({ fill: sc.bg });
       canvas.renderAll();
     }
