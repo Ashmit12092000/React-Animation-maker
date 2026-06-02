@@ -1536,36 +1536,90 @@ export function CanvasEditor() {
     // ── 3. Restore or initialise the incoming scene ───────────────────────
     const saved = getSceneCanvasData(activeSceneId);
 
+    // Called once the canvas is fully repopulated after loadFromJSON resolves.
+    //
+    // IMPORTANT: In Fabric v6, loadFromJSON(json, reviver?) returns a Promise.
+    // The second argument is a per-object REVIVER, not a done-callback.
+    // We must chain .then(afterLoad) on the returned Promise — passing afterLoad
+    // as the second arg to loadFromJSON would call it once per deserialized
+    // object (with wrong arguments and a partially-populated canvas), which is
+    // why the old approach silently broke all scene-restore logic.
     const afterLoad = () => {
-      // Re-link fabricObject refs on every track belonging to this scene.
-      // loadFromJSON creates brand-new FabricObject instances, so the old
-      // refs stored in tracks are stale after every scene restore.
       const store = useEditorStore.getState();
       const sceneTracks = store.tracks.filter(t => t.sceneId === activeSceneId);
       const canvasObjects = canvas.getObjects();
 
       sceneTracks.forEach(track => {
-        // Find all objects on canvas that claim this track's ID.
-        // There should only ever be one; remove any extras (ghosts from
-        // a previous scene switch where canvas wasn't cleared properly).
+        // ── Re-link fabricObject to the fresh instance created by loadFromJSON ─
+        // loadFromJSON creates brand-new Fabric object instances; the old refs
+        // stored in tracks are stale and no longer on canvas after restore.
         const matches = canvasObjects.filter(
           (o: any) => o._customId === track.id
         );
-        // Keep the last (most recently added = restored by loadFromJSON)
-        // and remove any earlier duplicates.
+        // Remove ghost duplicates (should never happen, but guard anyway)
         if (matches.length > 1) {
           matches.slice(0, -1).forEach(ghost => canvas.remove(ghost));
         }
-        const freshObj = matches[matches.length - 1];
+        const freshObj = matches[matches.length - 1] as any;
         if (freshObj && freshObj !== track.fabricObject) {
           store.updateTrack(track.id, { fabricObject: freshObj });
         }
+
+        // ── Re-attach PIXI armature display for character / prop tracks ────────
+        // The PIXI display is still alive on pixiApp.stage (we never destroy it
+        // on scene switch), but freshObj.armatureDisplay is null because it's a
+        // brand-new Fabric object. Without re-linking, applyKeyframesAtTime
+        // can't drive the DragonBones position or animation.
+        if (!freshObj) return;
+        const ct = freshObj.customType ?? "";
+        if (ct !== "character" && ct !== "prop") return;
+        const pixiApp = pixiAppRef.current;
+        if (!pixiApp) return;
+
+        const existingDisplay = armatureDisplaysRef.current.find(d => {
+          // Match by proximity to the fresh proxy's saved position.
+          const dx = Math.abs(d.x - (freshObj.left ?? 0));
+          const dy = Math.abs(d.y - (freshObj.top  ?? 0));
+          const alreadyClaimed = canvasObjects.some(
+            (o: any) => o !== freshObj && o.armatureDisplay === d
+          );
+          return !alreadyClaimed && dx < 300 && dy < 600;
+        });
+
+        if (existingDisplay) {
+          freshObj.armatureDisplay = existingDisplay;
+          // Copy cached size/scale metadata from the now-stale old proxy
+          const old = track.fabricObject as any;
+          if (old) {
+            if (old.dbScale     != null) freshObj.dbScale     = old.dbScale;
+            if (old.charW       != null) freshObj.charW       = old.charW;
+            if (old.charH       != null) freshObj.charH       = old.charH;
+            if (old.propOffsetX != null) freshObj.propOffsetX = old.propOffsetX;
+            if (old.propOffsetY != null) freshObj.propOffsetY = old.propOffsetY;
+          }
+          existingDisplay.visible = true;
+        } else {
+          // Fallback: queue a full armature re-load
+          const pa: import("../../utils/saveLoad").PendingArmature = {
+            trackId:            track.id,
+            assetName:          (freshObj._assetName ?? "") as string,
+            customType:         ct as "character" | "prop",
+            left:               freshObj.left   ?? 0,
+            top:                freshObj.top    ?? 0,
+            scaleX:             freshObj.scaleX ?? 1,
+            scaleY:             freshObj.scaleY ?? 1,
+            angle:              freshObj.angle  ?? 0,
+            opacity:            freshObj.opacity ?? 1,
+            characterAnimation: track.characterAnimation ?? undefined,
+          };
+          setPendingArmatures([pa]);
+        }
       });
 
-      // Scene restore is complete — applyKeyframesAtTime may resume canvas.add
+      // Restore complete — applyKeyframesAtTime may resume calling canvas.add()
       setSceneRestoring(false);
 
-      // Ensure bg colour is correct
+      // Fix background colour
       const sc = useEditorStore.getState().scenes.find(s => s.id === activeSceneId);
       if (sc) {
         const bgObj = canvas.getObjects().find((o: any) => (o as any).customType === "background");
@@ -1586,24 +1640,30 @@ export function CanvasEditor() {
           (bgObj as any).set({ fill: sc.bg });
         }
       }
+
+      // Immediately position all objects at the current scrub position so that
+      // path-animated objects (plain and character) snap to the right spot and
+      // kick off their DragonBones animations without waiting for the next tick.
+      useEditorStore.getState().applyKeyframesAtTime(
+        useEditorStore.getState().currentTime
+      );
+
       canvas.renderAll();
     };
 
     if (saved) {
-      try {
-        // Block applyKeyframesAtTime from re-adding stale fabricObject refs
-        // while the canvas is being cleared and repopulated.
-        setSceneRestoring(true);
-        // MUST clear first — Fabric v6 loadFromJSON appends objects rather
-        // than replacing them. Without this, objects from the previous scene
-        // stay on canvas alongside the restored ones, producing ghost duplicates
-        // that move independently during path animation playback.
-        canvas.remove(...canvas.getObjects());
-        canvas.loadFromJSON(saved, afterLoad);
-      } catch (e) {
-        setSceneRestoring(false); // ensure flag is always cleared on error
+      // Block applyKeyframesAtTime from re-adding stale fabricObject refs
+      // while the canvas is being cleared and repopulated.
+      setSceneRestoring(true);
+      // Clear first — Fabric v6 loadFromJSON appends rather than replaces,
+      // so without this objects from the previous scene linger as ghosts.
+      canvas.remove(...canvas.getObjects());
+      // loadFromJSON returns a Promise in Fabric v6; chain .then() for the
+      // done-callback (second arg is reviver, not completion callback).
+      canvas.loadFromJSON(saved).then(afterLoad).catch((e: unknown) => {
+        setSceneRestoring(false);
         console.warn("[Scene] Failed to restore canvas snapshot", e);
-      }
+      });
     } else if (!sceneInitializedRef.current.has(activeSceneId)) {
       // Brand-new scene — start with a blank canvas + background rect
       sceneInitializedRef.current.add(activeSceneId);

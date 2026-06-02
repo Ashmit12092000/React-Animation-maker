@@ -1,11 +1,3 @@
-/**
- * ScenePreviewPlayer.tsx
- *
- * Full-screen preview that plays all scenes in sequence with transitions.
- * Uses the existing fabric canvas + store — just drives activeSceneId and
- * currentTime forward automatically, applying transitions via a CSS overlay.
- */
-
 import { useEffect, useRef, useState, useCallback } from "react";
 import { useEditorStore } from "@/stores/editorStore";
 import {
@@ -76,7 +68,6 @@ function SceneProgressBar({
   sceneProgress: number;
 }) {
   const total = scenes.reduce((s, sc) => s + sc.duration, 0);
-  let cursor = 0;
 
   return (
     <div className="flex w-full h-1.5 rounded-full overflow-hidden gap-px bg-white/10">
@@ -84,7 +75,6 @@ function SceneProgressBar({
         const pct = (sc.duration / total) * 100;
         const isActive = i === activeIdx;
         const isDone = i < activeIdx;
-        cursor += sc.duration;
 
         return (
           <div
@@ -112,10 +102,11 @@ function SceneProgressBar({
 export function ScenePreviewPlayer({ onClose }: { onClose: () => void }) {
   const scenes         = useEditorStore(s => s.scenes);
   const setActiveScene = useEditorStore(s => s.setActiveScene);
-  const activeSceneId  = useEditorStore(s => s.activeSceneId);
   const setCurrentTime = useEditorStore(s => s.setCurrentTime);
   const applyKF        = useEditorStore(s => s.applyKeyframesAtTime);
   const setIsPlaying   = useEditorStore(s => s.setIsPlaying);
+  // Subscribe to scene-restore state so the RAF loop can pause during loads
+  const sceneRestoring = useEditorStore(s => s.sceneRestoring);
 
   const [sceneIdx, setSceneIdx]     = useState(0);
   const [playing, setPlaying]       = useState(true);
@@ -129,22 +120,41 @@ export function ScenePreviewPlayer({ onClose }: { onClose: () => void }) {
   const transitionRef   = useRef<{ startWall: number; duration: number; type: string; phase: "out" | "in"; nextIdx: number } | null>(null);
   const sceneIdxRef     = useRef(0);
   const playingRef      = useRef(true);
+  // Mirror of sceneRestoring for use inside RAF callback (avoids stale closure)
+  const sceneRestoringRef = useRef(false);
 
   // Keep refs in sync
   useEffect(() => { sceneIdxRef.current = sceneIdx; }, [sceneIdx]);
   useEffect(() => { playingRef.current = playing; }, [playing]);
+  useEffect(() => { sceneRestoringRef.current = sceneRestoring; }, [sceneRestoring]);
 
-  // On mount: go to scene 0, t=0
+  // On mount: go to scene 0, t=0.
+  // IMPORTANT: do NOT start the RAF here — wait for sceneRestoring to go false
+  // (signalled by CanvasEditor's afterLoad) before the first tick, otherwise the
+  // loop fires against a canvas that is mid-clear and produces a blank frame or
+  // contaminates the wrong scene's snapshot.
   useEffect(() => {
     if (scenes.length === 0) return;
-    setActiveScene(scenes[0].id);
     setCurrentTime(0);
-    applyKF(0);
-    setIsPlaying(true);
+    setSceneTime(0);
+    setSceneIdx(0);
+    sceneIdxRef.current = 0;
+    setActiveScene(scenes[0].id);
+    // Do NOT call setIsPlaying(true) here — Timeline's loop and the Preview
+    // loop would race. We drive time ourselves via RAF below.
   }, []); // eslint-disable-line
 
   // Main RAF loop
   const tick = useCallback((wall: number) => {
+    // Pause the loop while CanvasEditor is reloading canvas for a scene switch.
+    // Without this guard, ticks would fire against a cleared canvas and either
+    // produce blank frames or re-add stale fabricObject refs as ghosts.
+    if (sceneRestoringRef.current) {
+      lastWallRef.current = wall; // keep wall clock up to date so dt is correct on resume
+      rafRef.current = requestAnimationFrame(tick);
+      return;
+    }
+
     const dt = lastWallRef.current ? wall - lastWallRef.current : 16;
     lastWallRef.current = wall;
 
@@ -166,6 +176,7 @@ export function ScenePreviewPlayer({ onClose }: { onClose: () => void }) {
           const nextSc = scenes[tr.nextIdx];
           if (!nextSc) { transitionRef.current = null; return; }
           setSceneIdx(tr.nextIdx);
+          sceneIdxRef.current = tr.nextIdx;
           setActiveScene(nextSc.id);
           setCurrentTime(0);
           applyKF(0);
@@ -190,11 +201,6 @@ export function ScenePreviewPlayer({ onClose }: { onClose: () => void }) {
       rafRef.current = requestAnimationFrame(tick);
       return;
     }
-
-    const newSceneTime = (prev: number) => {
-      const next = prev + dt;
-      return next;
-    };
 
     setSceneTime(prev => {
       const next = prev + dt;
@@ -305,6 +311,13 @@ export function ScenePreviewPlayer({ onClose }: { onClose: () => void }) {
         >
           {/* This transparent pass-through shows the fabric canvas underneath */}
         </div>
+
+        {/* Loading indicator shown while scene canvas is being restored */}
+        {sceneRestoring && (
+          <div className="absolute inset-0 flex items-center justify-center bg-black/60 z-10">
+            <div className="w-8 h-8 border-2 border-primary border-t-transparent rounded-full animate-spin" />
+          </div>
+        )}
 
         {/* Scene label */}
         <div className="absolute top-4 left-1/2 -translate-x-1/2 bg-black/60 backdrop-blur-sm rounded-full px-4 py-1.5 flex items-center gap-2">

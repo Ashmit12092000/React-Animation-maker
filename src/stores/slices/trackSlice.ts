@@ -12,9 +12,20 @@ import { buildCumulativeLengths, getPositionAtT } from "../../utils/pathAnimatio
  * re-linked. While true, applyKeyframesAtTime will NOT call canvas.add() — this
  * prevents the stale fabricObject ref from being re-added as a ghost between the
  * canvas clear and the loadFromJSON completion.
+ *
+ * The module-level variable is used internally by applyKeyframesAtTime (hot path,
+ * no React re-render needed). The Zustand store also exposes `sceneRestoring` so
+ * ScenePreviewPlayer can pause its RAF loop while a scene load is in progress.
  */
 export let isSceneRestoring = false;
-export const setSceneRestoring = (v: boolean) => { isSceneRestoring = v; };
+export const setSceneRestoring = (v: boolean) => {
+  isSceneRestoring = v;
+  // Mirror into the Zustand store so components can subscribe to it.
+  // Dynamic import avoids a circular-dependency between trackSlice ↔ editorStore.
+  import("../editorStore").then(({ useEditorStore }) => {
+    useEditorStore.setState({ sceneRestoring: v });
+  });
+};
 
 // Animations that should loop continuously (playTimes = 0).
 // Everything NOT in this set is a one-shot transition (playTimes = 1) that

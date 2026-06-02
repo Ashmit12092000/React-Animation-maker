@@ -15,12 +15,15 @@ export interface EditorState extends CanvasSlice, HistorySlice, TrackSlice, Asse
     projectName: string;
     pendingArmatures: PendingArmature[];
     setPendingArmatures: (a: PendingArmature[]) => void;
+    /** True while CanvasEditor is clearing + reloading canvas for a scene switch */
+    sceneRestoring: boolean;
 }
 
 export const useEditorStore = create<EditorState>((...a) => ({
     projectName: "Untitled Project",
     pendingArmatures: [],
     setPendingArmatures: (armatures) => (a[0] as any)({ pendingArmatures: armatures }),
+    sceneRestoring: false,
     ...createCanvasSlice(...a),
     ...createHistorySlice(...a),
     ...createTrackSlice(...a),
