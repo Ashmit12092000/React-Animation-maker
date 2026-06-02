@@ -87,6 +87,7 @@ export function CanvasEditor() {
     saveSceneCanvasData,
     getSceneCanvasData,
     updateSceneThumbnail,
+    updateSceneBgImage,
   } = useEditorStore();
   // read saveCheckpoint directly when needed
   const { saveCheckpoint } = useEditorStore.getState
@@ -2113,16 +2114,51 @@ export function CanvasEditor() {
 
             store.saveCheckpoint();
 
-            // Demote any existing background
-            canvas.getObjects().forEach((o) => {
-              if ((o as any).customType === "background" && o !== selectedObject) {
-                (o as any).customType = "item";
-                o.set({
-                  selectable: true, evented: true,
-                  lockMovementX: false, lockMovementY: false,
-                  lockScalingX: false, lockScalingY: false,
-                  lockRotation: false, hasControls: true, hasBorders: true,
+            // Handle any existing background:
+            // - If it is an image/gif → detach it back to a normal moveable asset
+            // - If it is a solid colour Rect → remove it entirely
+            const existingBgs = canvas.getObjects().filter(
+              (o) => (o as any).customType === "background" && o !== selectedObject
+            );
+            existingBgs.forEach((oldBg) => {
+              const isImageBg =
+                (oldBg as any).type === "image" ||
+                (oldBg as any).customType === "gif" ||
+                typeof (oldBg as any).getSrc === "function";
+
+              if (isImageBg) {
+                // Detach: restore to a normal selectable asset at a sensible size
+                (oldBg as any).customType = "item";
+                const naturalW = (oldBg as any).width  || 1;
+                const naturalH = (oldBg as any).height || 1;
+                const targetSize = 200;
+                const normalScale = Math.min(
+                  targetSize / naturalW,
+                  targetSize / naturalH,
+                );
+                const canvasW2 = canvas.getWidth();
+                const canvasH2 = canvas.getHeight();
+                oldBg.set({
+                  selectable: true,
+                  evented: true,
+                  hasControls: true,
+                  hasBorders: true,
+                  lockMovementX: false,
+                  lockMovementY: false,
+                  lockScalingX: false,
+                  lockScalingY: false,
+                  lockRotation: false,
+                  originX: "left",
+                  originY: "top",
+                  scaleX: normalScale,
+                  scaleY: normalScale,
+                  left: canvasW2 / 2 - (naturalW * normalScale) / 2,
+                  top:  canvasH2 / 2 - (naturalH * normalScale) / 2,
                 });
+                oldBg.setCoords();
+              } else {
+                // Solid colour Rect — just remove it
+                canvas.remove(oldBg);
               }
             });
 
@@ -2157,6 +2193,17 @@ export function CanvasEditor() {
             canvas.moveObjectTo(selectedObject, 0);
             canvas.renderAll();
             store.captureState(store.selectedObjectId!);
+
+            // Persist the new background image URL into the scene store so it
+            // survives scene switches and initial loads.
+            const imgSrc =
+              (selectedObject as any)._element?.src ||
+              (selectedObject as any)._originalElement?.src ||
+              (selectedObject as any).getSrc?.() ||
+              null;
+            if (imgSrc) {
+              updateSceneBgImage(store.activeSceneId, imgSrc);
+            }
           }}
         />
       )}

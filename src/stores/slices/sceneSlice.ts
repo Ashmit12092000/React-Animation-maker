@@ -65,6 +65,8 @@ export interface SceneSlice {
   getSceneCanvasData: (id: string) => string | null;
   /** Save thumbnail data URL for a scene */
   updateSceneThumbnail: (id: string, dataUrl: string) => void;
+  /** Update bgImageUrl for a scene (when user drops an image as background) */
+  updateSceneBgImage: (id: string, bgImageUrl: string | undefined) => void;
 }
 
 const BG_PRESETS = [
@@ -192,6 +194,12 @@ export const createSceneSlice: StateCreator<EditorState, [], [], SceneSlice> = (
   updateSceneThumbnail: (id, dataUrl) => {
     set((s) => ({
       scenes: s.scenes.map((x) => (x.id === id ? { ...x, thumbnail: dataUrl } : x)),
+    }));
+  },
+
+  updateSceneBgImage: (id, bgImageUrl) => {
+    set((s) => ({
+      scenes: s.scenes.map((x) => (x.id === id ? { ...x, bgImageUrl } : x)),
     }));
   },
 });
