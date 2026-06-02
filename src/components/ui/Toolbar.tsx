@@ -256,7 +256,7 @@ export function Toolbar() {
           >
             {saveFlash
               ? <><CheckCircle2 className="h-4 w-4" /> Saved!</>
-              : <><Save className="h-4 w-4" /> Save</>
+              : <><Save className="h-4 w-4" /></>
             }
           </Button>
 
@@ -298,7 +298,7 @@ export function Toolbar() {
             variant="destructive"
             size="sm"
           >
-            <Trash2 className="h-4 w-4" /> Delete
+            <Trash2 className="h-4 w-4" />
           </Button>
 
           <Button onClick={handleExport} variant="default" size="sm">

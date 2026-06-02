@@ -798,7 +798,7 @@ export function Timeline() {
             )}
           >
             <Mic className="w-3.5 h-3.5" />
-            Record
+            
           </button>
 
           {showVoiceRecorder && (
