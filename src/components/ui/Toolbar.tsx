@@ -1,11 +1,12 @@
 import { useState, useRef, useEffect } from "react";
-import { Trash2, Download, Video, Undo2, Redo2, Search, Eraser, AlertTriangle, Save, FolderOpen, CheckCircle2, Loader2, X } from "lucide-react";
+import { Trash2, Download, Video, Undo2, Redo2, Search, Eraser, AlertTriangle, Save, FolderOpen, CheckCircle2, Loader2, X, PlayCircle } from "lucide-react";
 import { Button } from "./button";
 import { Input } from "./input";
 import { useEditorStore } from "../../stores/editorStore";
 import { exportSceneJSON } from "../../utils/export";
 import { saveProject, loadProject } from "../../utils/saveLoad";
 import { startVideoExport, findPixiCanvas, findFabricCanvasEl, type VideoExportController } from "../../utils/videoExport";
+import { ScenePreviewPlayer } from "../editor/ScenePreviewPlayer";
 
 export function Toolbar() {
   const {
@@ -14,6 +15,10 @@ export function Toolbar() {
     selectedObjectId,
     canvas,
     tracks,
+    scenes,
+    activeSceneId,
+    setActiveScene,
+    saveSceneCanvasData,
     duration,
     deleteSelected,
     clearCanvas,
@@ -36,6 +41,7 @@ export function Toolbar() {
   const [confirmClear, setConfirmClear] = useState(false);
   const [loadWarnings, setLoadWarnings] = useState<string[]>([]);
   const [saveFlash, setSaveFlash] = useState(false);
+  const [showPreview, setShowPreview] = useState(false);
 
   // ── Video export state ────────────────────────────────────────────────────
   const [isExportingVideo, setIsExportingVideo] = useState(false);
@@ -85,7 +91,6 @@ export function Toolbar() {
       return;
     }
 
-    // Stop any current playback and rewind
     setIsPlaying(false);
     setCurrentTime(0);
     applyKeyframesAtTime(0);
@@ -94,21 +99,36 @@ export function Toolbar() {
     setExportProgress(0);
     setExportStage("recording");
 
-    // IMPORTANT: store `duration` defaults to 5000 (seconds) — never use it as a ceiling.
-    // Only derive duration from actual track end times.
+    // Save current scene canvas before export starts
+    if (activeSceneId) {
+      try {
+        const json = JSON.stringify(canvas.toJSON());
+        saveSceneCanvasData(activeSceneId, json);
+      } catch {}
+    }
+
+    // Build scene list for multi-scene export
+    const sceneList = scenes.length > 1 ? scenes : undefined;
+
+    // Compute total duration from scenes or tracks
     const trackMax = tracks.length > 0 ? Math.max(...tracks.map(t => t.endTime)) : 0;
-    const maxDuration = trackMax > 0 ? trackMax : 10; // fallback 10s if no tracks
+    const singleDuration = trackMax > 0 ? trackMax : 10;
+    const totalDuration = sceneList
+      ? sceneList.reduce((s, sc) => s + sc.duration / 1000, 0)
+      : singleDuration;
 
     const controller = startVideoExport({
       fabricCanvas: fabricEl,
       pixiCanvas:   pixiEl,
       tracks,
-      duration: maxDuration,
+      duration: totalDuration,
       fps: 30,
       projectName,
-      // ⚠️ onFrame fires 60×/sec — NEVER call React setState here.
-      // Call the store imperatively via getState() to move the timeline
-      // without triggering React re-renders on every frame.
+      scenes: sceneList,
+      onSceneSwitch: (sceneId) => {
+        // Imperatively switch scene without React re-render lag
+        useEditorStore.getState().setActiveScene(sceneId);
+      },
       onFrame: (t) => {
         const s = useEditorStore.getState();
         s.setCurrentTime(t);
@@ -125,6 +145,8 @@ export function Toolbar() {
         setIsPlaying(false);
         setCurrentTime(0);
         applyKeyframesAtTime(0);
+        // Restore original scene
+        if (activeSceneId) setActiveScene(activeSceneId);
         exportControllerRef.current = null;
       },
       onError: (err) => {
@@ -283,6 +305,16 @@ export function Toolbar() {
             <Download className="h-4 w-4" /> Export JSON
           </Button>
 
+          <Button
+            onClick={() => setShowPreview(true)}
+            variant="outline"
+            size="sm"
+            title="Preview all scenes in sequence"
+            className="border-emerald-500/60 text-emerald-300 hover:bg-emerald-500/10 hover:text-emerald-200 hover:border-emerald-400 transition-colors"
+          >
+            <PlayCircle className="h-4 w-4" /> Preview
+          </Button>
+
           <div className="relative" ref={pixabayRef}>
             <Button
               onClick={() => setPixabayOpen((s) => !s)}
@@ -393,7 +425,12 @@ export function Toolbar() {
                 <div>
                   <h2 className="text-base font-semibold text-foreground">Exporting Video</h2>
                   <p className="text-xs text-muted-foreground mt-0.5">
-                    {exportStage === "done" ? "Done! Downloading…" : "Recording canvas in real time…"}
+                    {exportStage === "done"
+                      ? "Done! Downloading…"
+                      : scenes.length > 1
+                        ? `Recording ${scenes.length} scenes in sequence…`
+                        : "Recording canvas in real time…"
+                    }
                   </p>
                 </div>
               </div>
@@ -435,6 +472,10 @@ export function Toolbar() {
             </Button>
           </div>
         </div>
+      )}
+      {/* ── Scene Preview Player ─────────────────────────────────────────── */}
+      {showPreview && (
+        <ScenePreviewPlayer onClose={() => setShowPreview(false)} />
       )}
     </>
   );

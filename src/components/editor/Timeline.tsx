@@ -109,7 +109,11 @@ export function Timeline() {
     updateTrack,
     reorderTracks,
     removeAudioFiltersFromTrack,
+    activeSceneId,
   } = useEditorStore();
+
+  // Only show tracks that belong to the active scene (or legacy tracks with no sceneId)
+  const sceneTracks = tracks.filter(t => !t.sceneId || t.sceneId === activeSceneId);
 
   const timelineRef = useRef<HTMLDivElement>(null);
   const scrollContainerRef = useRef<HTMLDivElement>(null);
@@ -187,7 +191,7 @@ export function Timeline() {
     });
   }, [canvas, tracks]);
 
-  const maxTrackEnd = Math.max(0, ...tracks.map((t) => (isFinite(t.endTime) ? t.endTime : 0)));
+  const maxTrackEnd = Math.max(0, ...sceneTracks.map((t) => (isFinite(t.endTime) ? t.endTime : 0)));
 
   const minVisibleDuration = 10;
   const visibleDuration = Math.max(minVisibleDuration, maxTrackEnd + 2);
@@ -391,7 +395,7 @@ export function Timeline() {
     toast.success("Track split");
   };
 
-  const selectedTrack = tracks.find((t) => t.id === selectedObjectId);
+  const selectedTrack = sceneTracks.find((t) => t.id === selectedObjectId);
   const hasPath = !!(selectedTrack?.pathAnimation);
   const isDrawingObjectSelected =
     !selectedTrack &&
@@ -427,7 +431,7 @@ export function Timeline() {
       return;
     }
     if (!selectedObjectId) { toast.error("Select a track first"); return; }
-    const track = tracks.find((t) => t.id === selectedObjectId);
+    const track = sceneTracks.find((t) => t.id === selectedObjectId);
     if (!track || track.type !== "visual") { toast.error("Path animation only works on visual objects"); return; }
     const isCharacter = (track.fabricObject as any)?.customType === "character";
     if (isCharacter) {
@@ -500,10 +504,10 @@ export function Timeline() {
           </button>
           <button
             onClick={handlePlay}
-            disabled={tracks.length === 0}
+            disabled={sceneTracks.length === 0}
             className={cn(
               "h-7 min-w-[80px] flex items-center justify-center gap-1.5 rounded-md text-xs font-semibold transition-all px-3",
-              tracks.length === 0
+              sceneTracks.length === 0
                 ? "bg-white/5 text-gray-600 border border-white/5 cursor-not-allowed opacity-50"
                 : isPlaying
                 ? "bg-red-500/20 text-red-400 hover:bg-red-500/30 border border-red-500/30"
@@ -714,12 +718,12 @@ export function Timeline() {
         >
           <div className="h-7 flex-shrink-0" style={{ borderBottom: "1px solid rgba(255,255,255,0.06)" }} />
 
-          {tracks.length === 0 && (
+          {sceneTracks.length === 0 && (
             <div className="h-10 px-3 flex items-center text-xs text-gray-600">No tracks</div>
           )}
 
-          {tracks.map((track, trackIndex) => {
-            const visualIdx = tracks.filter(t => t.type === "visual" && tracks.indexOf(t) <= tracks.indexOf(track)).length - 1;
+          {sceneTracks.map((track, trackIndex) => {
+            const visualIdx = sceneTracks.filter(t => t.type === "visual" && sceneTracks.indexOf(t) <= sceneTracks.indexOf(track)).length - 1;
             const c = getTrackColor(track, visualIdx);
             const isSelected = selectedObjectId === track.id;
             const isDraggingThis = draggingRowIndex === trackIndex;
@@ -909,8 +913,8 @@ export function Timeline() {
             </div>
 
             <div className="relative">
-              {tracks.map((track, trackIdx) => {
-                const visualIdx = tracks.filter((t, i) => t.type === "visual" && i <= trackIdx).length - 1;
+              {sceneTracks.map((track, trackIdx) => {
+                const visualIdx = sceneTracks.filter((t, i) => t.type === "visual" && i <= trackIdx).length - 1;
                 const c = getTrackColor(track, visualIdx);
                 const isSelected = selectedObjectId === track.id;
                 return (

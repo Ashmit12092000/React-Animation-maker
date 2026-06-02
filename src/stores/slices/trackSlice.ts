@@ -93,7 +93,10 @@ export const createTrackSlice: StateCreator<EditorState, [], [], TrackSlice> = (
       selectedTrackId: trackId,
     }),
 
-  addTrack: (track) => set((state) => ({ tracks: [...state.tracks, { ...track, volume: track.type === 'visual' ? 0 : 1 }] })),
+  addTrack: (track) => set((state) => {
+    const sceneId = (state as any).activeSceneId as string | undefined;
+    return { tracks: [...state.tracks, { ...track, sceneId, volume: track.type === 'visual' ? 0 : 1 }] };
+  }),
 
   reorderTracks: (fromIndex, toIndex) => {
     if (fromIndex === toIndex) return;

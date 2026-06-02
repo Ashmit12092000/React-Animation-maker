@@ -21,6 +21,9 @@ export interface VideoExportOptions {
   onProgress?: (pct: number) => void;
   onComplete?: () => void;
   onError?: (err: Error) => void;
+  /** Multi-scene export — when provided, sequences through scenes automatically */
+  scenes?: Array<{ id: string; duration: number; transition?: string }>;
+  onSceneSwitch?: (sceneId: string) => void;
 }
 
 export interface VideoExportController {
@@ -39,7 +42,14 @@ export function startVideoExport(opts: VideoExportOptions): VideoExportControlle
     onProgress,
     onComplete,
     onError,
+    scenes,
+    onSceneSwitch,
   } = opts;
+
+  // ── Total duration: sum of all scene durations if multi-scene, else single duration ──
+  const totalDuration = scenes && scenes.length > 0
+    ? scenes.reduce((s, sc) => s + sc.duration / 1000, 0)
+    : duration;
 
   let cancelled = false;
   let rafId = 0;
@@ -154,6 +164,14 @@ export function startVideoExport(opts: VideoExportOptions): VideoExportControlle
   const startWall        = performance.now();
   let lastProgressMs     = 0;
 
+  // Multi-scene tracking
+  let currentSceneIdx    = 0;
+  let sceneStartWall     = 0; // wall time when current scene started recording
+
+  if (scenes && scenes.length > 0) {
+    onSceneSwitch?.(scenes[0].id);
+  }
+
   // Start recording — request data every 500ms for reliability
   recorder.start(500);
 
@@ -163,11 +181,10 @@ export function startVideoExport(opts: VideoExportOptions): VideoExportControlle
       return;
     }
 
-    const elapsed = (wallMs - startWall) / 1000;
+    const totalElapsed = (wallMs - startWall) / 1000;
 
-    if (elapsed >= duration) {
+    if (totalElapsed >= totalDuration) {
       drawComposite();
-      // Request final chunk before stopping
       if (recorder.state === "recording") recorder.requestData();
       setTimeout(() => {
         if (recorder.state !== "inactive") recorder.stop();
@@ -175,8 +192,26 @@ export function startVideoExport(opts: VideoExportOptions): VideoExportControlle
       return;
     }
 
-    // Advance animation (no React setState — pure side effects only)
-    onFrame(elapsed);
+    // ── Multi-scene: check if we need to switch scene ──────────────────────
+    if (scenes && scenes.length > 0) {
+      const sc = scenes[currentSceneIdx];
+      const scElapsed = (wallMs - (startWall + sceneStartWall * 1000)) / 1000;
+
+      if (scElapsed >= sc.duration / 1000 && currentSceneIdx < scenes.length - 1) {
+        currentSceneIdx++;
+        sceneStartWall = totalElapsed;
+        onSceneSwitch?.(scenes[currentSceneIdx].id);
+        // Give 100ms for canvas to update (scene restore is synchronous JSON parse)
+        setTimeout(() => {}, 100);
+      }
+
+      // Per-scene time for keyframe application
+      const sceneTime = Math.max(0, totalElapsed - sceneStartWall);
+      onFrame(sceneTime);
+    } else {
+      // Single-scene — pass raw elapsed time
+      onFrame(totalElapsed);
+    }
 
     // Draw both layers onto composite
     drawComposite();
@@ -184,7 +219,7 @@ export function startVideoExport(opts: VideoExportOptions): VideoExportControlle
     // Throttle progress UI updates to 4×/sec
     if (wallMs - lastProgressMs > 250) {
       lastProgressMs = wallMs;
-      onProgress?.(Math.round((elapsed / duration) * 100));
+      onProgress?.(Math.round((totalElapsed / totalDuration) * 100));
     }
 
     rafId = requestAnimationFrame(tick);

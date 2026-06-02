@@ -67,6 +67,12 @@ export function CanvasEditor() {
     eraserSize,
     pendingArmatures,
     setPendingArmatures,
+    // ── Scene system ──
+    activeSceneId,
+    scenes,
+    saveSceneCanvasData,
+    getSceneCanvasData,
+    updateSceneThumbnail,
   } = useEditorStore();
   // read saveCheckpoint directly when needed
   const { saveCheckpoint } = useEditorStore.getState
@@ -1480,6 +1486,103 @@ export function CanvasEditor() {
       canvas.renderAll();
     }
   }, []);
+
+  // ── Scene switch: save current canvas → restore new scene canvas ────────────
+  const prevSceneIdRef = useRef<string | null>(null);
+  const sceneInitializedRef = useRef<Set<string>>(new Set());
+
+  useEffect(() => {
+    const canvas = fabricRef.current;
+    if (!canvas) return;
+    if (prevSceneIdRef.current === activeSceneId) return;
+
+    const prevId = prevSceneIdRef.current;
+
+    // 1. Save current canvas state to the scene we're leaving
+    if (prevId) {
+      try {
+        const json = JSON.stringify(canvas.toJSON());
+        saveSceneCanvasData(prevId, json);
+        // Capture a thumbnail (small data URL)
+        const thumb = canvas.toDataURL({ format: "png", multiplier: 0.2 });
+        updateSceneThumbnail(prevId, thumb);
+      } catch (e) {
+        console.warn("[Scene] Failed to save canvas snapshot", e);
+      }
+    }
+
+    prevSceneIdRef.current = activeSceneId;
+
+    // 2. Load the new scene's canvas state (if it has one)
+    const saved = getSceneCanvasData(activeSceneId);
+
+    if (saved) {
+      try {
+        canvas.loadFromJSON(saved, () => {
+          canvas.renderAll();
+          // Re-apply scene background colour
+          const sc = useEditorStore.getState().scenes.find(s => s.id === activeSceneId);
+          if (sc) {
+            const bgObj = canvas.getObjects().find((o: any) => (o as any).customType === "background");
+            if (!bgObj) {
+              // Apply solid bg if no background object exists
+              const bg = new Rect({
+                left: 0, top: 0,
+                width: canvas.getWidth(), height: canvas.getHeight(),
+                fill: sc.bg,
+                selectable: false, evented: false,
+                lockMovementX: true, lockMovementY: true,
+                lockScalingX: true, lockScalingY: true,
+                lockRotation: true, hasControls: false, hasBorders: false,
+              });
+              (bg as any).customType = "background";
+              canvas.add(bg);
+              canvas.sendObjectToBack(bg);
+              canvas.renderAll();
+            }
+          }
+        });
+      } catch (e) {
+        console.warn("[Scene] Failed to restore canvas snapshot", e);
+      }
+    } else if (!sceneInitializedRef.current.has(activeSceneId)) {
+      // New scene — clear canvas and apply its background colour
+      sceneInitializedRef.current.add(activeSceneId);
+
+      // Clear all objects
+      canvas.remove(...canvas.getObjects());
+
+      const sc = useEditorStore.getState().scenes.find(s => s.id === activeSceneId);
+      if (sc) {
+        const bg = new Rect({
+          left: 0, top: 0,
+          width: canvas.getWidth(), height: canvas.getHeight(),
+          fill: sc.bg,
+          selectable: false, evented: false,
+          lockMovementX: true, lockMovementY: true,
+          lockScalingX: true, lockScalingY: true,
+          lockRotation: true, hasControls: false, hasBorders: false,
+        });
+        (bg as any).customType = "background";
+        canvas.add(bg);
+        canvas.sendObjectToBack(bg);
+      }
+      canvas.renderAll();
+    }
+  }, [activeSceneId, saveSceneCanvasData, getSceneCanvasData, updateSceneThumbnail]);
+
+  // When scene bg changes (from Backgrounds tab), update canvas background live
+  useEffect(() => {
+    const canvas = fabricRef.current;
+    if (!canvas) return;
+    const sc = scenes.find(s => s.id === activeSceneId);
+    if (!sc) return;
+    const bgObj = canvas.getObjects().find((o: any) => (o as any).customType === "background");
+    if (bgObj) {
+      (bgObj as any).set({ fill: sc.bg });
+      canvas.renderAll();
+    }
+  }, [scenes, activeSceneId]);
 
   // Expose functions globally
   useEffect(() => {

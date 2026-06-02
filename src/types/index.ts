@@ -82,6 +82,8 @@ export interface TrackObject {
   id: string;
   name: string;
   type: "visual" | "audio" | "video";
+  /** Scene this track belongs to */
+  sceneId?: string;
   fabricObject: FabricObject | null;
   startTime: number;
   endTime: number;
