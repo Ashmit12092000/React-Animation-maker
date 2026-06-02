@@ -1505,6 +1505,28 @@ export function CanvasEditor() {
   const prevSceneIdRef = useRef<string | null>(null);
   const sceneInitializedRef = useRef<Set<string>>(new Set());
 
+  // ── Synchronous sceneRestoring guard ────────────────────────────────────────
+  // RAF ticks (from the Fabric render loop and ScenePreviewPlayer) can fire in
+  // the gap between React committing a new `activeSceneId` prop and the
+  // useEffect below actually running. If those ticks call applyKeyframesAtTime
+  // while the canvas is being cleared/repopulated they re-add stale fabricObject
+  // refs as ghost objects.
+  //
+  // Setting isSceneRestoring=true DURING RENDER (i.e. synchronously, before any
+  // RAF can fire) closes that window completely. React renders are synchronous
+  // within a commit phase, so this executes before the browser gets a chance to
+  // schedule another animation frame.
+  //
+  // We use a ref to remember the scene id we armed the flag for, so we only
+  // call setSceneRestoring(true) once per scene transition (not on every render).
+  const guardedSceneIdRef = useRef<string | null>(null);
+  if (activeSceneId !== prevSceneIdRef.current && activeSceneId !== guardedSceneIdRef.current) {
+    // Only arm when there is actually a saved canvas to restore — brand-new
+    // scenes skip the loadFromJSON path entirely and never need the guard.
+    guardedSceneIdRef.current = activeSceneId;
+    setSceneRestoring(true);
+  }
+
   useEffect(() => {
     const canvas = fabricRef.current;
     if (!canvas) return;
@@ -1519,13 +1541,34 @@ export function CanvasEditor() {
     // ── 2. Save the leaving scene's canvas + thumbnail ─────────────────────
     if (prevId) {
       try {
-        // Custom properties (_customId, customType, etc.) are preserved
-        // automatically because they are registered on FabricObject.customProperties
-        // at module load time (Fabric v6 pattern).
+        // Between setActiveScene() and this effect running, a RAF tick may
+        // have added objects from the INCOMING scene onto the canvas (because
+        // applyKeyframesAtTime reads activeSceneId from Zustand, which has
+        // already updated). Serialize only objects that belong to prevId's
+        // tracks so the saved JSON is clean.
+        const store = useEditorStore.getState();
+        const prevTrackIds = new Set(
+          store.tracks
+            .filter(t => t.sceneId === prevId)
+            .map(t => t.id)
+        );
+
+        const all = canvas.getObjects();
+        const intruders = all.filter(obj => {
+          const cid  = (obj as any)._customId;
+          const ctype = (obj as any).customType;
+          if (ctype === "background" || ctype === "drawing") return false;
+          if (!cid) return false;
+          return !prevTrackIds.has(cid);
+        });
+
+        // Temporarily remove intruders, serialize, then restore
+        intruders.forEach(obj => canvas.remove(obj));
         const json = JSON.stringify(canvas.toJSON());
         saveSceneCanvasData(prevId, json);
         const thumb = canvas.toDataURL({ format: "png", multiplier: 0.2 });
         updateSceneThumbnail(prevId, thumb);
+        intruders.forEach(obj => canvas.add(obj));
       } catch (e) {
         console.warn("[Scene] Failed to save canvas snapshot", e);
       }
@@ -1652,8 +1695,10 @@ export function CanvasEditor() {
     };
 
     if (saved) {
-      // Block applyKeyframesAtTime from re-adding stale fabricObject refs
-      // while the canvas is being cleared and repopulated.
+      // sceneRestoring was already set to true synchronously during render
+      // (before this effect ran) to block any RAF ticks that fired in between.
+      // We call it again here as a belt-and-suspenders safety net in case the
+      // render-time guard was somehow skipped (e.g. StrictMode double-invoke).
       setSceneRestoring(true);
       // Clear first — Fabric v6 loadFromJSON appends rather than replaces,
       // so without this objects from the previous scene linger as ghosts.
@@ -1664,8 +1709,12 @@ export function CanvasEditor() {
         setSceneRestoring(false);
         console.warn("[Scene] Failed to restore canvas snapshot", e);
       });
-    } else if (!sceneInitializedRef.current.has(activeSceneId)) {
-      // Brand-new scene — start with a blank canvas + background rect
+    } else {
+      // No saved JSON for this scene — always clear the canvas and lay down a
+      // fresh background. We intentionally do NOT check sceneInitializedRef
+      // here: if we skipped this path the canvas would keep whatever objects
+      // the previous scene (or preview) left on it, causing cross-scene bleed.
+      setSceneRestoring(false);
       sceneInitializedRef.current.add(activeSceneId);
       canvas.remove(...canvas.getObjects());
 

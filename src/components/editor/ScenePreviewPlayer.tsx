@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState, useCallback } from "react";
 import { useEditorStore } from "@/stores/editorStore";
 import {
-  X, Play, Pause, SkipBack, SkipForward, Volume2, Maximize2,
+  X, Play, Pause, SkipBack, SkipForward,
 } from "lucide-react";
 import { cn } from "@/utils/utils";
 
@@ -108,12 +108,22 @@ export function ScenePreviewPlayer({ onClose }: { onClose: () => void }) {
   // Subscribe to scene-restore state so the RAF loop can pause during loads
   const sceneRestoring = useEditorStore(s => s.sceneRestoring);
 
+  // The scene that was active when preview opened — restored on close
+  const originalSceneIdRef = useRef(useEditorStore.getState().activeSceneId);
+
   const [sceneIdx, setSceneIdx]     = useState(0);
   const [playing, setPlaying]       = useState(true);
   const [sceneTime, setSceneTime]   = useState(0);   // ms elapsed in current scene
   const [overlay, setOverlay]       = useState<TransitionOverlayState>({
     active: false, type: "fade", phase: "out",
   });
+
+  // ── Mirror canvas: composites Fabric + PIXI canvases into preview display ──
+  // The editor canvases live inside the normal app layout. Rather than trying
+  // to make them visible through a fullscreen overlay (which z-index tricks
+  // can't reliably solve because they're in a different stacking context), we
+  // copy their pixels into our own <canvas> on every RAF tick via drawImage().
+  const mirrorCanvasRef = useRef<HTMLCanvasElement>(null);
 
   const rafRef          = useRef<number>(0);
   const lastWallRef     = useRef<number>(0);
@@ -128,13 +138,21 @@ export function ScenePreviewPlayer({ onClose }: { onClose: () => void }) {
   useEffect(() => { playingRef.current = playing; }, [playing]);
   useEffect(() => { sceneRestoringRef.current = sceneRestoring; }, [sceneRestoring]);
 
-  // On mount: go to scene 0, t=0.
-  // IMPORTANT: do NOT start the RAF here — wait for sceneRestoring to go false
-  // (signalled by CanvasEditor's afterLoad) before the first tick, otherwise the
-  // loop fires against a canvas that is mid-clear and produces a blank frame or
-  // contaminates the wrong scene's snapshot.
+  // On mount: save current canvas state, then go to scene 0, t=0.
   useEffect(() => {
     if (scenes.length === 0) return;
+
+    // Save the current scene's canvas before preview hijacks activeSceneId,
+    // so CanvasEditor has fresh JSON when it restores on close.
+    const store = useEditorStore.getState();
+    const currentCanvas = store.canvas;
+    if (currentCanvas) {
+      try {
+        const json = JSON.stringify(currentCanvas.toJSON());
+        store.saveSceneCanvasData(store.activeSceneId, json);
+      } catch (_) {}
+    }
+
     setCurrentTime(0);
     setSceneTime(0);
     setSceneIdx(0);
@@ -144,11 +162,40 @@ export function ScenePreviewPlayer({ onClose }: { onClose: () => void }) {
     // loop would race. We drive time ourselves via RAF below.
   }, []); // eslint-disable-line
 
+  // ── Canvas mirror: draw Fabric + PIXI pixels into our preview canvas ──────
+  const drawMirror = useCallback(() => {
+    const dst = mirrorCanvasRef.current;
+    if (!dst) return;
+    const ctx = dst.getContext("2d");
+    if (!ctx) return;
+
+    // Locate the live editor canvases by their data attributes
+    const fabricEl = document.querySelector<HTMLCanvasElement>("[data-canvas-role='fabric']");
+    // Fabric v6 wraps the user canvas in a container; the actual painted canvas
+    // is the lower canvas (Fabric draws there, not on canvasRef directly).
+    const lowerEl  = fabricEl?.parentElement?.querySelector<HTMLCanvasElement>(".lower-canvas") ?? fabricEl;
+    const pixiEl   = document.querySelector<HTMLCanvasElement>("[data-canvas-role='pixi']");
+
+    ctx.clearRect(0, 0, dst.width, dst.height);
+
+    // Draw background + fabric objects
+    if (lowerEl) {
+      try { ctx.drawImage(lowerEl, 0, 0, dst.width, dst.height); } catch (_) {}
+    }
+    // Composite PIXI on top (transparent background, so characters/props appear)
+    if (pixiEl) {
+      try { ctx.drawImage(pixiEl, 0, 0, dst.width, dst.height); } catch (_) {}
+    }
+  }, []);
+
   // Main RAF loop
   const tick = useCallback((wall: number) => {
-    // Pause the loop while CanvasEditor is reloading canvas for a scene switch.
-    // Without this guard, ticks would fire against a cleared canvas and either
-    // produce blank frames or re-add stale fabricObject refs as ghosts.
+    // Always mirror the canvas each frame so the display stays live
+    drawMirror();
+
+    // Pause the playback logic while CanvasEditor is reloading canvas for a
+    // scene switch. Keep the RAF running so the mirror keeps drawing (it shows
+    // the loading spinner / partial state rather than a black freeze).
     if (sceneRestoringRef.current) {
       lastWallRef.current = wall; // keep wall clock up to date so dt is correct on resume
       rafRef.current = requestAnimationFrame(tick);
@@ -172,14 +219,18 @@ export function ScenePreviewPlayer({ onClose }: { onClose: () => void }) {
 
       if (progress >= 1) {
         if (tr.phase === "out") {
-          // Switch scene, start "in" phase
+          // Switch scene, start "in" phase.
+          // Do NOT call applyKF(0) here: setActiveScene() updates Zustand's
+          // activeSceneId synchronously, so applyKF would immediately add the
+          // new scene's fabricObjects to the canvas before CanvasEditor has
+          // cleared it. That contaminates the leaving scene's saved JSON.
+          // CanvasEditor's afterLoad callback handles applyKeyframesAtTime.
           const nextSc = scenes[tr.nextIdx];
           if (!nextSc) { transitionRef.current = null; return; }
           setSceneIdx(tr.nextIdx);
           sceneIdxRef.current = tr.nextIdx;
           setActiveScene(nextSc.id);
           setCurrentTime(0);
-          applyKF(0);
           setSceneTime(0);
           transitionRef.current = {
             startWall: wall, duration: tr.duration,
@@ -234,7 +285,7 @@ export function ScenePreviewPlayer({ onClose }: { onClose: () => void }) {
     });
 
     rafRef.current = requestAnimationFrame(tick);
-  }, [scenes, setActiveScene, setCurrentTime, applyKF, setIsPlaying]);
+  }, [scenes, setActiveScene, setCurrentTime, applyKF, setIsPlaying, drawMirror]);
 
   useEffect(() => {
     lastWallRef.current = 0;
@@ -258,7 +309,8 @@ export function ScenePreviewPlayer({ onClose }: { onClose: () => void }) {
     sceneIdxRef.current = prev;
     setActiveScene(scenes[prev].id);
     setCurrentTime(0);
-    applyKF(0);
+    // No applyKF(0) — setActiveScene already updated Zustand activeSceneId,
+    // so applyKF would add the new scene's objects before CanvasEditor clears.
     setSceneTime(0);
     transitionRef.current = null;
     setOverlay({ active: false, type: "none", phase: "out" });
@@ -270,7 +322,7 @@ export function ScenePreviewPlayer({ onClose }: { onClose: () => void }) {
     sceneIdxRef.current = next;
     setActiveScene(scenes[next].id);
     setCurrentTime(0);
-    applyKF(0);
+    // No applyKF(0) — same reason as handlePrevScene above.
     setSceneTime(0);
     transitionRef.current = null;
     setOverlay({ active: false, type: "none", phase: "out" });
@@ -281,7 +333,12 @@ export function ScenePreviewPlayer({ onClose }: { onClose: () => void }) {
     setIsPlaying(false);
     setPlaying(false);
     setCurrentTime(0);
-    applyKF(0);
+    // Do NOT call applyKF(0) here — activeSceneId is still pointing at whatever
+    // scene the preview last played, so applyKF would add that scene's objects
+    // onto the canvas right before CanvasEditor saves it as the leaving scene.
+    // CanvasEditor's afterLoad callback calls applyKeyframesAtTime itself once
+    // the correct scene JSON has been fully restored.
+    setActiveScene(originalSceneIdRef.current);
     onClose();
   };
 
@@ -300,16 +357,32 @@ export function ScenePreviewPlayer({ onClose }: { onClose: () => void }) {
     ? Math.min(1, (performance.now() - transitionRef.current.startWall) / transitionRef.current.duration)
     : 1;
 
+  // Canvas dimensions — match the editor canvas (960×540)
+  const CANVAS_W = 960;
+  const CANVAS_H = 540;
+
   return (
     <div className="fixed inset-0 z-[9999] bg-black flex flex-col items-center justify-center">
       {/* Canvas area */}
       <div className="relative flex-1 flex items-center justify-center w-full overflow-hidden">
-        {/* The actual editor canvas is visible behind this overlay */}
+
+        {/* Mirror canvas — composites Fabric + PIXI pixels from the live editor */}
         <div
-          className="absolute inset-0 flex items-center justify-center pointer-events-none"
-          style={overlay.active ? getTransitionStyle(overlay.type, overlay.phase, trProgress) : {}}
+          className="relative"
+          style={{
+            // Letterbox: fit 960×540 inside available space
+            maxWidth: "100%",
+            maxHeight: "100%",
+            aspectRatio: `${CANVAS_W} / ${CANVAS_H}`,
+            ...(overlay.active ? getTransitionStyle(overlay.type, overlay.phase, trProgress) : {}),
+          }}
         >
-          {/* This transparent pass-through shows the fabric canvas underneath */}
+          <canvas
+            ref={mirrorCanvasRef}
+            width={CANVAS_W}
+            height={CANVAS_H}
+            style={{ display: "block", width: "100%", height: "100%" }}
+          />
         </div>
 
         {/* Loading indicator shown while scene canvas is being restored */}
@@ -386,7 +459,7 @@ export function ScenePreviewPlayer({ onClose }: { onClose: () => void }) {
                   sceneIdxRef.current = i;
                   setActiveScene(s.id);
                   setCurrentTime(0);
-                  applyKF(0);
+                  // No applyKF(0) — same race as handlePrevScene/handleNextScene.
                   setSceneTime(0);
                   transitionRef.current = null;
                   setOverlay({ active: false, type: "none", phase: "out" });
