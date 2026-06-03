@@ -1655,6 +1655,10 @@ export function CanvasEditor() {
       canvas.remove(bg);
       canvas.renderAll();
     }
+    // Clear sc.bg to "" (the "no background" sentinel) so the reconcile and
+    // live-update effects don't immediately re-create a background rect.
+    const { activeSceneId: sceneId } = useEditorStore.getState();
+    useEditorStore.getState().setSceneBg(sceneId, "");
   }, []);
 
   // ── Scene switch: save current canvas → restore new scene canvas ────────────
@@ -1856,36 +1860,40 @@ export function CanvasEditor() {
         const bgIsImage = bgObj && (bgObj as any).type === "image";
 
         if (!bgObj) {
-          // Case 1 — no background object; create one.
-          const bg = new Rect({
-            left: 0, top: 0,
-            width: canvas.getWidth(), height: canvas.getHeight(),
-            fill: sc.bg,
-            selectable: false, evented: false,
-            lockMovementX: true, lockMovementY: true,
-            lockScalingX: true, lockScalingY: true,
-            lockRotation: true, hasControls: false, hasBorders: false,
-          });
-          (bg as any).customType = "background";
-          canvas.add(bg);
-          canvas.sendObjectToBack(bg);
+          // Case 1 — no background object.
+          // Respect sc.bg === "" as "user intentionally deleted the background".
+          if (sc.bg) {
+            const bg = new Rect({
+              left: 0, top: 0,
+              width: canvas.getWidth(), height: canvas.getHeight(),
+              fill: sc.bg,
+              selectable: false, evented: false,
+              lockMovementX: true, lockMovementY: true,
+              lockScalingX: true, lockScalingY: true,
+              lockRotation: true, hasControls: false, hasBorders: false,
+            });
+            (bg as any).customType = "background";
+            canvas.add(bg);
+            canvas.sendObjectToBack(bg);
+          }
         } else if (bgIsImage && !sc.bgImageUrl) {
           // Case 3 — stale image background but scene now wants solid colour.
-          // Remove the image and lay down a solid rect instead.
           canvas.remove(bgObj);
-          const bg = new Rect({
-            left: 0, top: 0,
-            width: canvas.getWidth(), height: canvas.getHeight(),
-            fill: sc.bg,
-            selectable: false, evented: false,
-            lockMovementX: true, lockMovementY: true,
-            lockScalingX: true, lockScalingY: true,
-            lockRotation: true, hasControls: false, hasBorders: false,
-          });
-          (bg as any).customType = "background";
-          canvas.add(bg);
-          canvas.sendObjectToBack(bg);
-        } else if (!bgIsImage) {
+          if (sc.bg) {
+            const bg = new Rect({
+              left: 0, top: 0,
+              width: canvas.getWidth(), height: canvas.getHeight(),
+              fill: sc.bg,
+              selectable: false, evented: false,
+              lockMovementX: true, lockMovementY: true,
+              lockScalingX: true, lockScalingY: true,
+              lockRotation: true, hasControls: false, hasBorders: false,
+            });
+            (bg as any).customType = "background";
+            canvas.add(bg);
+            canvas.sendObjectToBack(bg);
+          }
+        } else if (!bgIsImage && sc.bg) {
           // Case 2 — existing colour rect; update fill.
           (bgObj as any).set({ fill: sc.bg });
           (bgObj as any).dirty = true;
@@ -2043,20 +2051,23 @@ export function CanvasEditor() {
       (bgObj as any).dirty = true;
       canvas.renderAll();
     } else if (!bgObj) {
-      // Sub-case c: no background at all — create one.
-      const bg = new Rect({
-        left: 0, top: 0,
-        width: canvas.getWidth(), height: canvas.getHeight(),
-        fill: sc.bg,
-        selectable: false, evented: false,
-        lockMovementX: true, lockMovementY: true,
-        lockScalingX: true, lockScalingY: true,
-        lockRotation: true, hasControls: false, hasBorders: false,
-      });
-      (bg as any).customType = "background";
-      canvas.add(bg);
-      canvas.sendObjectToBack(bg);
-      canvas.renderAll();
+      // Sub-case c: no background at all — create one, unless sc.bg is ""
+      // (meaning the user explicitly deleted it; honour that choice).
+      if (sc.bg) {
+        const bg = new Rect({
+          left: 0, top: 0,
+          width: canvas.getWidth(), height: canvas.getHeight(),
+          fill: sc.bg,
+          selectable: false, evented: false,
+          lockMovementX: true, lockMovementY: true,
+          lockScalingX: true, lockScalingY: true,
+          lockRotation: true, hasControls: false, hasBorders: false,
+        });
+        (bg as any).customType = "background";
+        canvas.add(bg);
+        canvas.sendObjectToBack(bg);
+        canvas.renderAll();
+      }
     }
   }, [scenes, activeSceneId]);
 
@@ -2362,8 +2373,10 @@ export function CanvasEditor() {
                 });
                 oldBg.setCoords();
               } else {
-                // Solid colour Rect — just remove it
+                // Solid colour Rect — just remove it and clear the store so
+                // reconcile / live-update don't re-create it.
                 canvas.remove(oldBg);
+                useEditorStore.getState().setSceneBg(store.activeSceneId, "");
               }
             });
 
