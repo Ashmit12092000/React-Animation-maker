@@ -171,7 +171,13 @@ export const createSceneSlice: StateCreator<EditorState, [], [], SceneSlice> = (
     });
   },
 
-  setActiveScene: (id) => set({ activeSceneId: id }),
+  setActiveScene: (id) => set({
+    activeSceneId: id,
+    // Always reset the playhead to 0 when switching scenes so the yellow
+    // seek indicator starts from the beginning of the incoming scene.
+    currentTime: 0,
+    isPlaying: false,
+  }),
 
   updateSceneSnapshot: (id, canvasJson) => {
     set((s) => ({

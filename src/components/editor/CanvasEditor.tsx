@@ -835,6 +835,21 @@ export function CanvasEditor() {
       for (const pa of pendingArmatures) {
         try {
           if (pa.customType === "character") {
+            // ── Deduplication guard ────────────────────────────────────────────────────
+            // The scene-switch afterLoad may have already linked a display to this
+            // proxy concurrently. If so, reuse it and skip creating a new one.
+            const proxyBefore = canvas.getObjects().find((o: any) => o._customId === pa.trackId);
+            if (proxyBefore && (proxyBefore as any).armatureDisplay) {
+              const existingDisplay = (proxyBefore as any).armatureDisplay;
+              existingDisplay.visible = true;
+              const anim = pa.characterAnimation ?? pa.assetName;
+              if (anim && existingDisplay.animation.animationNames.includes(anim)) {
+                existingDisplay.animation.play(anim, 0);
+              }
+              useEditorStore.getState().updateTrack(pa.trackId, { characterAnimation: pa.characterAnimation ?? pa.assetName });
+              continue;
+            }
+
             const { display } = await loadCharacter(pa.assetName);
 
             const CHAR_DB_HEIGHT = 945;
@@ -846,11 +861,28 @@ export function CanvasEditor() {
 
             display.scale.set(dbScale);
             display.zIndex = 10;
+
+            // Re-query proxy after async loadCharacter — canvas may have changed.
+            // Also do a post-await dedup: scene-switch afterLoad may have linked
+            // a display while we were awaiting, so never put two on stage.
+            const proxy = canvas.getObjects().find((o: any) => o._customId === pa.trackId);
+            if (proxy && (proxy as any).armatureDisplay) {
+              // Discard the redundant display we just created
+              try { pixiApp.stage.removeChild(display); display.dispose(); } catch (_) {}
+              const existingDisplay = (proxy as any).armatureDisplay;
+              existingDisplay.visible = true;
+              const anim = pa.characterAnimation ?? pa.assetName;
+              if (anim && existingDisplay.animation.animationNames.includes(anim)) {
+                existingDisplay.animation.play(anim, 0);
+              }
+              useEditorStore.getState().updateTrack(pa.trackId, { characterAnimation: pa.characterAnimation ?? pa.assetName });
+              continue;
+            }
+
             pixiApp.stage.addChild(display);
             armatureDisplaysRef.current.push(display);
 
             // Find the proxy rect on canvas and attach display to it
-            const proxy = canvas.getObjects().find((o: any) => o._customId === pa.trackId);
             if (proxy) {
               (proxy as any).armatureDisplay = display;
               (proxy as any).dbScale         = dbScale;
@@ -868,13 +900,38 @@ export function CanvasEditor() {
             useEditorStore.getState().updateTrack(pa.trackId, { characterAnimation: pa.characterAnimation ?? pa.assetName });
 
           } else if (pa.customType === "prop" && pa.assetName !== "chair") {
+            // Dedup guard for props (same logic as characters above)
+            const proxyBefore = canvas.getObjects().find((o: any) => o._customId === pa.trackId);
+            if (proxyBefore && (proxyBefore as any).armatureDisplay) {
+              const existingDisplay = (proxyBefore as any).armatureDisplay;
+              existingDisplay.visible = true;
+              const anim = pa.characterAnimation;
+              if (anim && existingDisplay.animation.animationNames.includes(anim)) {
+                existingDisplay.animation.play(anim, 0);
+              }
+              continue;
+            }
+
             const { display, dbScale, proxyW, proxyH, offsetX, offsetY } = await loadProp(pa.assetName as any);
 
             display.zIndex = 0;
+
+            // Post-await dedup for props
+            const proxy = canvas.getObjects().find((o: any) => o._customId === pa.trackId);
+            if (proxy && (proxy as any).armatureDisplay) {
+              try { pixiApp.stage.removeChild(display); display.dispose(); } catch (_) {}
+              const existingDisplay = (proxy as any).armatureDisplay;
+              existingDisplay.visible = true;
+              const anim = pa.characterAnimation;
+              if (anim && existingDisplay.animation.animationNames.includes(anim)) {
+                existingDisplay.animation.play(anim, 0);
+              }
+              continue;
+            }
+
             pixiApp.stage.addChild(display);
             armatureDisplaysRef.current.push(display);
 
-            const proxy = canvas.getObjects().find((o: any) => o._customId === pa.trackId);
             if (proxy) {
               proxy.set({ width: proxyW, height: proxyH });
               proxy.setCoords();
@@ -1726,20 +1783,27 @@ export function CanvasEditor() {
             existingDisplay.animation.play(savedAnim, 0);
           }
         } else {
-          // Fallback: queue a full armature re-load
-          const pa: import("../../utils/saveLoad").PendingArmature = {
-            trackId:            track.id,
-            assetName:          (freshObj._assetName ?? "") as string,
-            customType:         ct as "character" | "prop",
-            left:               freshObj.left   ?? 0,
-            top:                freshObj.top    ?? 0,
-            scaleX:             freshObj.scaleX ?? 1,
-            scaleY:             freshObj.scaleY ?? 1,
-            angle:              freshObj.angle  ?? 0,
-            opacity:            freshObj.opacity ?? 1,
-            characterAnimation: track.characterAnimation ?? undefined,
-          };
-          setPendingArmatures([pa]);
+          // Fallback: queue a full armature re-load — but only if the initial
+          // load's pendingArmatures list isn't already going to handle this
+          // trackId. Checking current store pendingArmatures prevents a second
+          // concurrent load that would spawn a duplicate PIXI display.
+          const currentPending = useEditorStore.getState().pendingArmatures ?? [];
+          const alreadyQueued = currentPending.some((p: any) => p.trackId === track.id);
+          if (!alreadyQueued) {
+            const pa: import("../../utils/saveLoad").PendingArmature = {
+              trackId:            track.id,
+              assetName:          (freshObj._assetName ?? "") as string,
+              customType:         ct as "character" | "prop",
+              left:               freshObj.left   ?? 0,
+              top:                freshObj.top    ?? 0,
+              scaleX:             freshObj.scaleX ?? 1,
+              scaleY:             freshObj.scaleY ?? 1,
+              angle:              freshObj.angle  ?? 0,
+              opacity:            freshObj.opacity ?? 1,
+              characterAnimation: track.characterAnimation ?? undefined,
+            };
+            setPendingArmatures([pa]);
+          }
         }
       });
 

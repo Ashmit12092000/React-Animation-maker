@@ -116,7 +116,10 @@ export const createTrackSlice: StateCreator<EditorState, [], [], TrackSlice> = (
     }),
 
   addTrack: (track) => set((state) => {
-    const sceneId = (state as any).activeSceneId as string | undefined;
+    // Preserve an explicit sceneId already set on the track (e.g. during project
+    // load where every track carries its saved sceneId). Only fall back to the
+    // current activeSceneId when the track has no sceneId of its own.
+    const sceneId = (track as any).sceneId ?? ((state as any).activeSceneId as string | undefined);
     return { tracks: [...state.tracks, { ...track, sceneId, volume: track.type === 'visual' ? 0 : 1 }] };
   }),
 

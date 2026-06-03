@@ -708,7 +708,14 @@ export async function loadProject(
 
   if (!canvas) return { warnings: ["Canvas not ready."], pendingArmatures: [] };
 
+  // The active scene at load time — only objects from THIS scene go onto the
+  // live Fabric canvas.  Every other scene's objects are stored exclusively in
+  // sceneCanvasData and will be restored by CanvasEditor when the user switches.
+  const loadActiveSceneId = save.activeSceneId ?? "";
+
   for (const st of save.tracks) {
+    // Whether this track belongs to the scene that is currently active on canvas
+    const isActiveScene = !st.sceneId || st.sceneId === loadActiveSceneId;
     // ── Audio ──────────────────────────────────────────────────────────────
     if (st.type === "audio") {
       // ── TTS track ────────────────────────────────────────────────────────
@@ -761,27 +768,33 @@ export async function loadProject(
 
     // ── Character ──────────────────────────────────────────────────────────
     if (ct === "character") {
-      const proxy = new Rect({
-        left: fo!.left, top: fo!.top,
-        width:  fo!.charW ?? 103,
-        height: fo!.charH ?? 300,
-        scaleX: fo!.scaleX, scaleY: fo!.scaleY,
-        angle:  fo!.angle,  opacity: fo!.opacity,
-        fill:        "rgba(100,100,255,0.0)",
-        stroke:      "transparent",
-        strokeWidth: 1,
-        strokeDashArray: [4, 4],
-        rx: 4, ry: 4,
-      });
-      (proxy as any)._proxyStroke = "rgba(100,100,255,0.5)";
-      (proxy as any)._proxyFill   = "rgba(100,100,255,0.08)";
-      (proxy as any)._customId    = st.id;
-      (proxy as any)._assetName   = st.name;
-      (proxy as any).customType   = "character";
-      (proxy as any).dbScale      = fo!.dbScale;
-      (proxy as any).charW        = fo!.charW ?? 103;
-      (proxy as any).charH        = fo!.charH ?? 300;
-      canvas.add(proxy);
+      // Only build/add the canvas proxy for the active scene.
+      // Non-active-scene characters are stored in sceneCanvasData and will be
+      // restored by CanvasEditor on scene switch, so we just register the track.
+      let proxy: any = null;
+      if (isActiveScene) {
+        proxy = new Rect({
+          left: fo!.left, top: fo!.top,
+          width:  fo!.charW ?? 103,
+          height: fo!.charH ?? 300,
+          scaleX: fo!.scaleX, scaleY: fo!.scaleY,
+          angle:  fo!.angle,  opacity: fo!.opacity,
+          fill:        "rgba(100,100,255,0.0)",
+          stroke:      "transparent",
+          strokeWidth: 1,
+          strokeDashArray: [4, 4],
+          rx: 4, ry: 4,
+        });
+        (proxy as any)._proxyStroke = "rgba(100,100,255,0.5)";
+        (proxy as any)._proxyFill   = "rgba(100,100,255,0.08)";
+        (proxy as any)._customId    = st.id;
+        (proxy as any)._assetName   = st.name;
+        (proxy as any).customType   = "character";
+        (proxy as any).dbScale      = fo!.dbScale;
+        (proxy as any).charW        = fo!.charW ?? 103;
+        (proxy as any).charH        = fo!.charH ?? 300;
+        canvas.add(proxy);
+      }
 
       const track: any = {
         id: st.id, name: st.name, type: "visual", color: st.color,
@@ -798,15 +811,17 @@ export async function loadProject(
       track.sequenceAction     = st.sequenceAction  ?? null;
       callbacks.addTrack(track);
 
-      pendingArmatures.push({
-        trackId: st.id,
-        assetName: fo!.assetName ?? st.characterAnimation ?? "Idle",
-        customType: "character",
-        left: fo!.left, top: fo!.top,
-        scaleX: fo!.scaleX, scaleY: fo!.scaleY,
-        angle:  fo!.angle,  opacity: fo!.opacity,
-        characterAnimation: st.characterAnimation,
-      });
+      if (isActiveScene) {
+        pendingArmatures.push({
+          trackId: st.id,
+          assetName: fo!.assetName ?? st.characterAnimation ?? "Idle",
+          customType: "character",
+          left: fo!.left, top: fo!.top,
+          scaleX: fo!.scaleX, scaleY: fo!.scaleY,
+          angle:  fo!.angle,  opacity: fo!.opacity,
+          characterAnimation: st.characterAnimation,
+        });
+      }
       continue;
     }
 
@@ -815,12 +830,15 @@ export async function loadProject(
       const isChair = fo!.assetName === "chair";
 
       if (isChair) {
-        const chairObj = await rebuildFabricObject({ ...fo!, customType: "image", src: "/chair_new.png" });
-        if (chairObj) {
-          (chairObj as any)._customId  = st.id;
-          (chairObj as any)._assetName = st.name;
-          (chairObj as any).customType = "prop";
-          canvas.add(chairObj);
+        let chairObj: any = null;
+        if (isActiveScene) {
+          chairObj = await rebuildFabricObject({ ...fo!, customType: "image", src: "/chair_new.png" });
+          if (chairObj) {
+            (chairObj as any)._customId  = st.id;
+            (chairObj as any)._assetName = st.name;
+            (chairObj as any).customType = "prop";
+            canvas.add(chairObj);
+          }
         }
         callbacks.addTrack({
           id: st.id, name: st.name, type: "visual" as any, color: st.color,
@@ -833,25 +851,28 @@ export async function loadProject(
         continue;
       }
 
-      const proxy = new Rect({
-        left: fo!.left, top: fo!.top,
-        width: fo!.width ?? 120, height: fo!.height ?? 100,
-        scaleX: fo!.scaleX, scaleY: fo!.scaleY,
-        angle:  fo!.angle,  opacity: fo!.opacity,
-        fill:        "rgba(249,115,22,0.0)",
-        stroke:      "transparent",
-        strokeWidth: 1, strokeDashArray: [4, 4],
-        rx: 4, ry: 4,
-      });
-      (proxy as any)._proxyStroke = "rgba(249,115,22,0.5)";
-      (proxy as any)._proxyFill   = "rgba(249,115,22,0.08)";
-      (proxy as any)._customId    = st.id;
-      (proxy as any)._assetName   = st.name;
-      (proxy as any).customType   = "prop";
-      (proxy as any).dbScale      = fo!.dbScale;
-      (proxy as any).propOffsetX  = fo!.propOffsetX;
-      (proxy as any).propOffsetY  = fo!.propOffsetY;
-      canvas.add(proxy);
+      let proxy: any = null;
+      if (isActiveScene) {
+        proxy = new Rect({
+          left: fo!.left, top: fo!.top,
+          width: fo!.width ?? 120, height: fo!.height ?? 100,
+          scaleX: fo!.scaleX, scaleY: fo!.scaleY,
+          angle:  fo!.angle,  opacity: fo!.opacity,
+          fill:        "rgba(249,115,22,0.0)",
+          stroke:      "transparent",
+          strokeWidth: 1, strokeDashArray: [4, 4],
+          rx: 4, ry: 4,
+        });
+        (proxy as any)._proxyStroke = "rgba(249,115,22,0.5)";
+        (proxy as any)._proxyFill   = "rgba(249,115,22,0.08)";
+        (proxy as any)._customId    = st.id;
+        (proxy as any)._assetName   = st.name;
+        (proxy as any).customType   = "prop";
+        (proxy as any).dbScale      = fo!.dbScale;
+        (proxy as any).propOffsetX  = fo!.propOffsetX;
+        (proxy as any).propOffsetY  = fo!.propOffsetY;
+        canvas.add(proxy);
+      }
 
       const track: any = {
         id: st.id, name: st.name, type: "visual", color: st.color,
@@ -867,22 +888,24 @@ export async function loadProject(
       track.sequenceAction     = st.sequenceAction  ?? null;
       callbacks.addTrack(track);
 
-      pendingArmatures.push({
-        trackId: st.id,
-        assetName: fo!.assetName ?? st.name,
-        customType: "prop",
-        left: fo!.left, top: fo!.top,
-        scaleX: fo!.scaleX, scaleY: fo!.scaleY,
-        angle:  fo!.angle,  opacity: fo!.opacity,
-        characterAnimation: st.characterAnimation,
-      });
+      if (isActiveScene) {
+        pendingArmatures.push({
+          trackId: st.id,
+          assetName: fo!.assetName ?? st.name,
+          customType: "prop",
+          left: fo!.left, top: fo!.top,
+          scaleX: fo!.scaleX, scaleY: fo!.scaleY,
+          angle:  fo!.angle,  opacity: fo!.opacity,
+          characterAnimation: st.characterAnimation,
+        });
+      }
       continue;
     }
 
     // ── Video ──────────────────────────────────────────────────────────────
     if (st.type === "video") {
       let fabricObject: any = null;
-      if (fo?.src) {
+      if (isActiveScene && fo?.src) {
         try { fabricObject = await rebuildFabricObject(fo); } catch { /**/ }
       }
       if (!fo?.src) {
@@ -908,7 +931,7 @@ export async function loadProject(
 
     // ── Visual (image, shape, text, background) ────────────────────────────
     let fabricObject: any = null;
-    if (fo) {
+    if (isActiveScene && fo) {
       try { fabricObject = await rebuildFabricObject(fo); } catch { /**/ }
     }
     if (fabricObject) {
