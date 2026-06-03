@@ -151,7 +151,6 @@ function SceneCard({
   const [draft, setDraft]             = useState(scene.label);
   const [showPicker, setShowPicker]   = useState(false);
   const [showDuration, setShowDuration] = useState(false);
-  const [showTransition, setShowTransition] = useState(false);
   const [draftDuration, setDraftDuration]   = useState(String((scene.duration / 1000).toFixed(1)));
   const inputRef    = useRef<HTMLInputElement>(null);
   const durInputRef = useRef<HTMLInputElement>(null);
@@ -266,18 +265,12 @@ function SceneCard({
           <div className="flex items-center justify-end gap-0.5 p-1 bg-black/70 backdrop-blur-sm">
             <button
               title="Background"
-              onClick={e => { e.stopPropagation(); setShowPicker(p => !p); setShowTransition(false); }}
+              onClick={e => { e.stopPropagation(); setShowPicker(p => !p); }}
               className="w-5 h-5 rounded flex items-center justify-center hover:bg-white/20 transition-colors"
             >
               <Palette className="w-3 h-3 text-white" />
             </button>
-            <button
-              title="Transition"
-              onClick={e => { e.stopPropagation(); setShowTransition(p => !p); setShowPicker(false); }}
-              className="w-5 h-5 rounded flex items-center justify-center hover:bg-white/20 transition-colors"
-            >
-              <Zap className="w-3 h-3 text-white" />
-            </button>
+
             <button
               title="Duplicate"
               onClick={e => { e.stopPropagation(); onDuplicate(); }}
@@ -370,34 +363,7 @@ function SceneCard({
         </div>
       )}
 
-      {/* ── Transition picker popover ── */}
-      {showTransition && (
-        <div
-          className="absolute z-40 top-full left-0 mt-1.5 p-2.5 bg-panel border border-panel-border rounded-xl shadow-2xl w-[150px]"
-          onClick={e => e.stopPropagation()}
-        >
-          <p className="text-[9px] font-semibold text-muted-foreground uppercase tracking-wider mb-2">Transition In</p>
-          <div className="space-y-0.5">
-            {TRANSITIONS.map(t => (
-              <button
-                key={t.type}
-                onClick={() => { onTransitionChange(t.type); setShowTransition(false); }}
-                className={cn(
-                  "w-full flex items-center gap-2 px-2 py-1.5 rounded-lg text-[10px] transition-all",
-                  transition === t.type
-                    ? "bg-primary text-primary-foreground"
-                    : "hover:bg-secondary text-muted-foreground hover:text-foreground"
-                )}
-              >
-                <span className="text-sm leading-none w-5 text-center">{t.icon}</span>
-                <span className="font-medium">{t.label}</span>
-                {transition === t.type && <Check className="w-3 h-3 ml-auto" />}
-              </button>
-            ))}
-          </div>
-          <button onClick={() => setShowTransition(false)} className="mt-2 w-full text-[9px] text-muted-foreground hover:text-foreground text-center">Close</button>
-        </div>
-      )}
+
     </div>
   );
 }

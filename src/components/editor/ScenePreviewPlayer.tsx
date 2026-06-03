@@ -5,55 +5,10 @@ import {
 } from "lucide-react";
 import { cn } from "@/utils/utils";
 
-// ─── Types ────────────────────────────────────────────────────────────────────
-
-interface TransitionOverlayState {
-  active: boolean;
-  type: string;
-  phase: "out" | "in";
-}
-
-// ─── Transition CSS ───────────────────────────────────────────────────────────
-
-function getTransitionStyle(
-  type: string,
-  phase: "out" | "in",
-  progress: number // 0→1
-): React.CSSProperties {
-  const t = Math.min(1, Math.max(0, progress));
-
-  switch (type) {
-    case "fade":
-      return { opacity: phase === "out" ? 1 - t : t, transition: "none" };
-
-    case "slide":
-      return {
-        transform: phase === "out"
-          ? `translateX(${-t * 100}%)`
-          : `translateX(${(1 - t) * 100}%)`,
-        transition: "none",
-      };
-
-    case "zoom":
-      return {
-        transform: phase === "out"
-          ? `scale(${1 + t * 0.3})`
-          : `scale(${1.3 - t * 0.3})`,
-        opacity: phase === "out" ? 1 - t : t,
-        transition: "none",
-      };
-
-    case "wipe":
-      return {
-        clipPath: phase === "out"
-          ? `inset(0 ${t * 100}% 0 0)`
-          : `inset(0 ${(1 - t) * 100}% 0 0)`,
-        transition: "none",
-      };
-
-    default: // "none" / "cut"
-      return {};
-  }
+// ─── Easing ───────────────────────────────────────────────────────────────────
+// Smooth ease-in-out cubic: slow start, fast middle, slow end
+function easeInOut(t: number): number {
+  return t < 0.5 ? 4 * t * t * t : 1 - Math.pow(-2 * t + 2, 3) / 2;
 }
 
 // ─── Scene Progress Bar ───────────────────────────────────────────────────────
@@ -114,16 +69,15 @@ export function ScenePreviewPlayer({ onClose }: { onClose: () => void }) {
   const [sceneIdx, setSceneIdx]     = useState(0);
   const [playing, setPlaying]       = useState(true);
   const [sceneTime, setSceneTime]   = useState(0);   // ms elapsed in current scene
-  const [overlay, setOverlay]       = useState<TransitionOverlayState>({
-    active: false, type: "fade", phase: "out",
-  });
 
   // ── Mirror canvas: composites Fabric + PIXI canvases into preview display ──
   // The editor canvases live inside the normal app layout. Rather than trying
   // to make them visible through a fullscreen overlay (which z-index tricks
   // can't reliably solve because they're in a different stacking context), we
   // copy their pixels into our own <canvas> on every RAF tick via drawImage().
-  const mirrorCanvasRef = useRef<HTMLCanvasElement>(null);
+  const mirrorCanvasRef    = useRef<HTMLCanvasElement>(null);
+  // Frozen pixel snapshot of the *outgoing* scene — composited on top during transitions
+  const snapshotCanvasRef  = useRef<HTMLCanvasElement | null>(null);
 
   const rafRef          = useRef<number>(0);
   const lastWallRef     = useRef<number>(0);
@@ -162,36 +116,145 @@ export function ScenePreviewPlayer({ onClose }: { onClose: () => void }) {
     // loop would race. We drive time ourselves via RAF below.
   }, []); // eslint-disable-line
 
-  // ── Canvas mirror: draw Fabric + PIXI pixels into our preview canvas ──────
-  const drawMirror = useCallback(() => {
+  // ── Grab live editor pixels into a destination canvas ───────────────────
+  const drawLiveInto = useCallback((dst: HTMLCanvasElement) => {
+    const ctx = dst.getContext("2d");
+    if (!ctx) return;
+    const fabricEl = document.querySelector<HTMLCanvasElement>("[data-canvas-role='fabric']");
+    const lowerEl  = fabricEl?.parentElement?.querySelector<HTMLCanvasElement>(".lower-canvas") ?? fabricEl;
+    const pixiEl   = document.querySelector<HTMLCanvasElement>("[data-canvas-role='pixi']");
+    ctx.clearRect(0, 0, dst.width, dst.height);
+    if (lowerEl) { try { ctx.drawImage(lowerEl, 0, 0, dst.width, dst.height); } catch (_) {} }
+    if (pixiEl)  { try { ctx.drawImage(pixiEl,  0, 0, dst.width, dst.height); } catch (_) {} }
+  }, []);
+
+  // ── Canvas mirror: composites live scene + outgoing snapshot each frame ───
+  // Strategy: live canvas (scene 2) is always drawn first as the base layer.
+  // The snapshot of scene 1 is drawn ON TOP with a transition effect applied.
+  // This gives true two-scene compositing for slide/zoom/wipe/fade.
+  const drawMirror = useCallback((trType?: string, trPhase?: "out" | "in", trRaw?: number) => {
     const dst = mirrorCanvasRef.current;
     if (!dst) return;
     const ctx = dst.getContext("2d");
     if (!ctx) return;
+    const W = dst.width, H = dst.height;
 
-    // Locate the live editor canvases by their data attributes
-    const fabricEl = document.querySelector<HTMLCanvasElement>("[data-canvas-role='fabric']");
-    // Fabric v6 wraps the user canvas in a container; the actual painted canvas
-    // is the lower canvas (Fabric draws there, not on canvasRef directly).
-    const lowerEl  = fabricEl?.parentElement?.querySelector<HTMLCanvasElement>(".lower-canvas") ?? fabricEl;
-    const pixiEl   = document.querySelector<HTMLCanvasElement>("[data-canvas-role='pixi']");
-
-    ctx.clearRect(0, 0, dst.width, dst.height);
-
-    // Draw background + fabric objects
-    if (lowerEl) {
-      try { ctx.drawImage(lowerEl, 0, 0, dst.width, dst.height); } catch (_) {}
+    // ── No transition: plain live draw ──────────────────────────────────────
+    if (!trType || trType === "none" || trRaw === undefined) {
+      drawLiveInto(dst);
+      return;
     }
-    // Composite PIXI on top (transparent background, so characters/props appear)
-    if (pixiEl) {
-      try { ctx.drawImage(pixiEl, 0, 0, dst.width, dst.height); } catch (_) {}
+
+    const t    = easeInOut(Math.min(1, Math.max(0, trRaw)));
+    const snap = snapshotCanvasRef.current;
+
+    // Base layer: incoming scene (live canvas), full size, no transform
+    drawLiveInto(dst);
+
+    if (!snap) return; // nothing to composite
+
+    ctx.save();
+
+    switch (trType) {
+
+      // ── FADE ──────────────────────────────────────────────────────────────
+      // Outgoing snapshot fades from opacity 1 → 0 over the full transition.
+      // We collapse both "out" and "in" phases into a single 0→1 progress so
+      // there is no visible seam when the scene switches mid-transition.
+      case "fade": {
+        // trPhase "out": t goes 0→1  → alpha 1→0
+        // trPhase "in":  t goes 0→1  → snap already 0 alpha, nothing to draw
+        if (trPhase === "out") {
+          ctx.globalAlpha = 1 - t;
+          ctx.drawImage(snap, 0, 0, W, H);
+        }
+        // "in" phase: live scene is already drawn; snapshot is invisible
+        break;
+      }
+
+      // ── SLIDE ─────────────────────────────────────────────────────────────
+      // Both scenes slide together: outgoing moves left, incoming moves right-to-0.
+      // We achieve this by drawing live (incoming) shifted, then snap on top shifted.
+      case "slide": {
+        if (trPhase === "out") {
+          // Redraw live shifted in from right side
+          ctx.clearRect(0, 0, W, H);
+          const inX = (1 - t) * W;   // incoming: W → 0
+          const offIn = document.createElement("canvas");
+          offIn.width = W; offIn.height = H;
+          drawLiveInto(offIn);
+          ctx.drawImage(offIn, inX, 0, W, H);
+          // Outgoing snapshot slides out to the left: 0 → -W
+          const outX = -t * W;
+          ctx.drawImage(snap, outX, 0, W, H);
+        }
+        // "in": scene switch already happened; live is at position 0, looks normal
+        break;
+      }
+
+      // ── ZOOM ──────────────────────────────────────────────────────────────
+      // Outgoing zooms and fades out; incoming zooms and fades in underneath.
+      case "zoom": {
+        if (trPhase === "out") {
+          // Redraw live (incoming) at scale 1.3→1 with opacity 0→1
+          ctx.clearRect(0, 0, W, H);
+          const scaleIn = 1.3 - t * 0.3;     // 1.3 → 1.0
+          const offZin = document.createElement("canvas");
+          offZin.width = W; offZin.height = H;
+          drawLiveInto(offZin);
+          ctx.save();
+          ctx.globalAlpha = t;               // 0 → 1
+          ctx.translate(W / 2, H / 2);
+          ctx.scale(scaleIn, scaleIn);
+          ctx.drawImage(offZin, -W / 2, -H / 2, W, H);
+          ctx.restore();
+          // Outgoing snapshot zooms out (scale 1→1.3) and fades out (1→0)
+          const scaleOut = 1 + t * 0.3;      // 1.0 → 1.3
+          ctx.save();
+          ctx.globalAlpha = 1 - t;           // 1 → 0
+          ctx.translate(W / 2, H / 2);
+          ctx.scale(scaleOut, scaleOut);
+          ctx.drawImage(snap, -W / 2, -H / 2, W, H);
+          ctx.restore();
+        }
+        // "in": live is already drawn at full scale/opacity
+        break;
+      }
+
+      // ── WIPE ──────────────────────────────────────────────────────────────
+      // Outgoing is revealed from right to left: a rectangular clip shrinks.
+      // Incoming scene is already fully drawn underneath — no separate "in".
+      case "wipe": {
+        if (trPhase === "out") {
+          const visibleW = Math.round((1 - t) * W); // shrinks left to right
+          if (visibleW > 0) {
+            ctx.beginPath();
+            ctx.rect(0, 0, visibleW, H);
+            ctx.clip();
+            ctx.drawImage(snap, 0, 0, W, H);
+          }
+        }
+        break;
+      }
+
+      default:
+        break;
     }
-  }, []);
+
+    ctx.restore();
+  }, [drawLiveInto]);
 
   // Main RAF loop
   const tick = useCallback((wall: number) => {
-    // Always mirror the canvas each frame so the display stays live
-    drawMirror();
+    // Always mirror the canvas each frame — pass current transition state for compositing
+    const _tr = transitionRef.current;
+    if (_tr) {
+      const _elapsed  = wall - _tr.startWall;
+      const _progress = Math.min(1, _elapsed / (_tr.duration || 1));
+      drawMirror(_tr.type, _tr.phase, _progress);
+    } else {
+      drawMirror();
+    }
 
     // Pause the playback logic while CanvasEditor is reloading canvas for a
     // scene switch. Keep the RAF running so the mirror keeps drawing (it shows
@@ -215,16 +278,12 @@ export function ScenePreviewPlayer({ onClose }: { onClose: () => void }) {
       const elapsed  = wall - tr.startWall;
       const progress = Math.min(1, elapsed / tr.duration);
 
-      setOverlay({ active: true, type: tr.type, phase: tr.phase });
+      // Drive re-render so React re-renders and drawMirror gets called with fresh progress
 
       if (progress >= 1) {
         if (tr.phase === "out") {
-          // Switch scene, start "in" phase.
-          // Do NOT call applyKF(0) here: setActiveScene() updates Zustand's
-          // activeSceneId synchronously, so applyKF would immediately add the
-          // new scene's fabricObjects to the canvas before CanvasEditor has
-          // cleared it. That contaminates the leaving scene's saved JSON.
-          // CanvasEditor's afterLoad callback handles applyKeyframesAtTime.
+          // Snapshot was already captured when transition started.
+          // Switch to next scene now — canvas will update to scene 2.
           const nextSc = scenes[tr.nextIdx];
           if (!nextSc) { transitionRef.current = null; return; }
           setSceneIdx(tr.nextIdx);
@@ -237,9 +296,9 @@ export function ScenePreviewPlayer({ onClose }: { onClose: () => void }) {
             type: tr.type, phase: "in", nextIdx: tr.nextIdx,
           };
         } else {
-          // Transition done
+          // Transition done — clear everything
           transitionRef.current = null;
-          setOverlay({ active: false, type: "none", phase: "out" });
+          snapshotCanvasRef.current = null;
         }
       }
 
@@ -274,9 +333,23 @@ export function ScenePreviewPlayer({ onClose }: { onClose: () => void }) {
           return sc.duration;
         }
 
-        // Start transition
-        const tType = sc.transition ?? "fade";
-        const tDuration = tType === "none" ? 0 : 400; // ms
+        // Start transition — type is stored on the *incoming* scene
+        const tType = (scenes[nextIdx]?.transition) ?? "none";
+        const tDuration = tType === "none" ? 0 : 800; // ms
+
+        if (tType !== "none") {
+          // Capture a frozen pixel snapshot of the outgoing scene RIGHT NOW,
+          // before setActiveScene() switches the live canvas to scene 2.
+          const snap = document.createElement("canvas");
+          snap.width  = mirrorCanvasRef.current?.width  ?? 960;
+          snap.height = mirrorCanvasRef.current?.height ?? 540;
+          const snapCtx = snap.getContext("2d");
+          if (snapCtx && mirrorCanvasRef.current) {
+            snapCtx.drawImage(mirrorCanvasRef.current, 0, 0);
+          }
+          snapshotCanvasRef.current = snap;
+        }
+
         transitionRef.current = {
           startWall: wall, duration: tDuration,
           type: tType, phase: "out", nextIdx,
@@ -320,7 +393,7 @@ export function ScenePreviewPlayer({ onClose }: { onClose: () => void }) {
     // so applyKF would add the new scene's objects before CanvasEditor clears.
     setSceneTime(0);
     transitionRef.current = null;
-    setOverlay({ active: false, type: "none", phase: "out" });
+    snapshotCanvasRef.current = null;
   };
 
   const handleNextScene = () => {
@@ -332,7 +405,7 @@ export function ScenePreviewPlayer({ onClose }: { onClose: () => void }) {
     // No applyKF(0) — same reason as handlePrevScene above.
     setSceneTime(0);
     transitionRef.current = null;
-    setOverlay({ active: false, type: "none", phase: "out" });
+    snapshotCanvasRef.current = null;
   };
 
   const handleClose = () => {
@@ -359,10 +432,7 @@ export function ScenePreviewPlayer({ onClose }: { onClose: () => void }) {
     return `${m}:${String(s % 60).padStart(2, "0")}`;
   };
 
-  // Transition overlay progress
-  const trProgress = transitionRef.current
-    ? Math.min(1, (performance.now() - transitionRef.current.startWall) / transitionRef.current.duration)
-    : 1;
+
 
   // Canvas dimensions — match the editor canvas (960×540)
   const CANVAS_W = 960;
@@ -381,7 +451,6 @@ export function ScenePreviewPlayer({ onClose }: { onClose: () => void }) {
             maxWidth: "100%",
             maxHeight: "100%",
             aspectRatio: `${CANVAS_W} / ${CANVAS_H}`,
-            ...(overlay.active ? getTransitionStyle(overlay.type, overlay.phase, trProgress) : {}),
           }}
         >
           <canvas
@@ -469,7 +538,7 @@ export function ScenePreviewPlayer({ onClose }: { onClose: () => void }) {
                   // No applyKF(0) — same race as handlePrevScene/handleNextScene.
                   setSceneTime(0);
                   transitionRef.current = null;
-                  setOverlay({ active: false, type: "none", phase: "out" });
+                  snapshotCanvasRef.current = null;
                 }}
                 className={cn(
                   "w-5 h-5 rounded-full text-[8px] font-bold transition-all",

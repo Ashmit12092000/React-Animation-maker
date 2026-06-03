@@ -1,4 +1,5 @@
 import { useRef, useEffect, useCallback, useState } from "react";
+import { createPortal } from "react-dom";
 import { useEditorStore } from "@/stores/editorStore";
 import type { Keyframe } from "../../types";
 
@@ -21,6 +22,7 @@ import {
   Zap,
   Wand2,
   Scissors,
+  Check,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { KeyframeEditor } from "./KeyframeEditor";
@@ -29,6 +31,143 @@ import { VoiceRecorder } from "./VoiceRecorder";
 import { PropActionPopup } from "./PropActionPopup";
 import { AudioFilterPanel } from "./AudioFilterPanel";
 
+// ── Transition types & data (mirrors SceneManagerPanel) ─────────────────────
+type TransitionType = "none" | "fade" | "slide" | "zoom" | "wipe";
+const TRANSITION_OPTIONS: { type: TransitionType; label: string; icon: string }[] = [
+  { type: "none",  label: "Cut",   icon: "⚡" },
+  { type: "fade",  label: "Fade",  icon: "🌫️" },
+  { type: "slide", label: "Slide", icon: "➡️" },
+  { type: "zoom",  label: "Zoom",  icon: "🔍" },
+  { type: "wipe",  label: "Wipe",  icon: "🪣" },
+];
+
+// ── Inline transition picker that floats between two scene pills ─────────────
+// The popover is rendered via a portal to escape the overflow-x-auto parent.
+function TransitionButton({
+  sceneId,
+  currentTransition,
+  onTransitionChange,
+}: {
+  sceneId: string;
+  currentTransition?: TransitionType;
+  onTransitionChange: (id: string, t: TransitionType) => void;
+}) {
+  const [open, setOpen] = useState(false);
+  const [popoverPos, setPopoverPos] = useState({ top: 0, left: 0 });
+  const btnRef = useRef<HTMLButtonElement>(null);
+  const popoverRef = useRef<HTMLDivElement>(null);
+  const transition = currentTransition ?? "none";
+  const isSet = transition !== "none";
+  const opt = TRANSITION_OPTIONS.find(o => o.type === transition);
+
+  // Position the portal popover below the button
+  const openPopover = (e: React.MouseEvent) => {
+    e.stopPropagation();
+    if (!btnRef.current) return;
+    const rect = btnRef.current.getBoundingClientRect();
+    setPopoverPos({
+      top: rect.bottom + 6,
+      left: rect.left + rect.width / 2,
+    });
+    setOpen(p => !p);
+  };
+
+  // Close on outside click
+  useEffect(() => {
+    if (!open) return;
+    const handler = (e: MouseEvent) => {
+      if (
+        popoverRef.current && !popoverRef.current.contains(e.target as Node) &&
+        btnRef.current && !btnRef.current.contains(e.target as Node)
+      ) {
+        setOpen(false);
+      }
+    };
+    document.addEventListener("mousedown", handler);
+    return () => document.removeEventListener("mousedown", handler);
+  }, [open]);
+
+  const popover = open ? createPortal(
+    <div
+      ref={popoverRef}
+      onMouseDown={e => e.stopPropagation()}
+      style={{
+        position: "fixed",
+        top: popoverPos.top,
+        left: popoverPos.left,
+        transform: "translateX(-50%)",
+        minWidth: 140,
+        background: "#1a1a2e",
+        border: "1px solid rgba(255,255,255,0.12)",
+        borderRadius: 12,
+        boxShadow: "0 8px 32px rgba(0,0,0,0.6)",
+        padding: "8px 8px 6px",
+        zIndex: 9999,
+      }}
+    >
+      <p style={{ fontSize: 9, fontWeight: 600, color: "#6b7280", textTransform: "uppercase", letterSpacing: "0.05em", marginBottom: 6 }}>
+        Transition In
+      </p>
+      <div style={{ display: "flex", flexDirection: "column", gap: 2 }}>
+        {TRANSITION_OPTIONS.map(t => (
+          <button
+            key={t.type}
+            onClick={() => { onTransitionChange(sceneId, t.type); setOpen(false); }}
+            style={{
+              display: "flex", alignItems: "center", gap: 6,
+              padding: "5px 8px", borderRadius: 8, fontSize: 10,
+              background: transition === t.type ? "rgba(99,102,241,0.3)" : "transparent",
+              color: transition === t.type ? "#c7d2fe" : "#9ca3af",
+              border: "none", cursor: "pointer", textAlign: "left",
+              width: "100%",
+            }}
+          >
+            <span style={{ fontSize: 13, width: 18, textAlign: "center" }}>{t.icon}</span>
+            <span style={{ fontWeight: 500 }}>{t.label}</span>
+            {transition === t.type && <Check style={{ width: 10, height: 10, marginLeft: "auto", color: "#818cf8" }} />}
+          </button>
+        ))}
+      </div>
+    </div>,
+    document.body
+  ) : null;
+
+  return (
+    <div className="relative flex-shrink-0 flex items-center">
+      {/* Connector line left */}
+      <div style={{ width: 6, height: 1, background: "rgba(255,255,255,0.1)" }} />
+
+      {/* The button */}
+      <button
+        ref={btnRef}
+        title={`Transition into next scene: ${opt?.label ?? "Cut"}`}
+        onClick={openPopover}
+        className="flex-shrink-0 flex items-center justify-center rounded"
+        style={{
+          width: 18,
+          height: 18,
+          background: isSet ? "rgba(139,92,246,0.25)" : "rgba(255,255,255,0.05)",
+          border: isSet ? "1px solid rgba(139,92,246,0.5)" : "1px solid rgba(255,255,255,0.10)",
+          fontSize: 10,
+          lineHeight: 1,
+          cursor: "pointer",
+          flexShrink: 0,
+        }}
+      >
+        {isSet ? (
+          <span style={{ fontSize: 9 }}>{opt?.icon}</span>
+        ) : (
+          <Zap style={{ width: 8, height: 8, color: "rgba(255,255,255,0.3)" }} />
+        )}
+      </button>
+
+      {/* Connector line right */}
+      <div style={{ width: 6, height: 1, background: "rgba(255,255,255,0.1)" }} />
+
+      {popover}
+    </div>
+  );
+}
 // Color system
 const TYPE_COLORS: Record<"audio" | "video", { from: string; to: string; glow: string; text: string; dot: string }> = {
   audio: {
@@ -113,6 +252,7 @@ export function Timeline() {
     activeSceneId,
     scenes,
     setActiveScene,
+    updateSceneTransition,
   } = useEditorStore();
 
   // Only show tracks that belong to the active scene (or legacy tracks with no sceneId)
@@ -548,47 +688,59 @@ export function Timeline() {
           <svg width="8" height="10" viewBox="0 0 8 10" fill="none"><path d="M6.5 1L1.5 5L6.5 9" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/></svg>
         </button>
 
-        {/* Scene pills */}
-        <div className="flex items-center gap-1 flex-1 min-w-0">
+        {/* Scene pills with transition buttons between them */}
+        <div className="flex items-center flex-1 min-w-0" style={{ gap: 0 }}>
           {scenes.map((sc, idx) => {
             const isActive = sc.id === activeSceneId;
             const scTrackCount = tracks.filter(t => !t.sceneId || t.sceneId === sc.id).length;
+            const isLast = idx === scenes.length - 1;
             return (
-              <button
-                key={sc.id}
-                onClick={() => setActiveScene(sc.id)}
-                title={`${sc.label} · ${scTrackCount} track${scTrackCount !== 1 ? "s" : ""}`}
-                className="flex-shrink-0 flex items-center gap-1.5 px-2 h-5 rounded transition-all"
-                style={{
-                  background: isActive
-                    ? "rgba(99,102,241,0.22)"
-                    : "rgba(255,255,255,0.04)",
-                  border: isActive
-                    ? "1px solid rgba(99,102,241,0.55)"
-                    : "1px solid rgba(255,255,255,0.07)",
-                  color: isActive ? "#a5b4fc" : "#4b5563",
-                }}
-              >
-                {/* Scene color swatch */}
-                <span
-                  className="w-2 h-2 rounded-sm flex-shrink-0"
-                  style={{ background: sc.bg ?? "#334155", border: "1px solid rgba(255,255,255,0.15)" }}
-                />
-                <span className="text-[10px] font-semibold whitespace-nowrap" style={{ color: isActive ? "#c7d2fe" : "#6b7280" }}>
-                  {idx + 1}. {sc.label}
-                </span>
-                {scTrackCount > 0 && (
+              <div key={sc.id} className="flex items-center flex-shrink-0" style={{ gap: 0 }}>
+                {/* Scene pill */}
+                <button
+                  onClick={() => setActiveScene(sc.id)}
+                  title={`${sc.label} · ${scTrackCount} track${scTrackCount !== 1 ? "s" : ""}`}
+                  className="flex-shrink-0 flex items-center gap-1.5 px-2 h-5 rounded transition-all"
+                  style={{
+                    background: isActive
+                      ? "rgba(99,102,241,0.22)"
+                      : "rgba(255,255,255,0.04)",
+                    border: isActive
+                      ? "1px solid rgba(99,102,241,0.55)"
+                      : "1px solid rgba(255,255,255,0.07)",
+                    color: isActive ? "#a5b4fc" : "#4b5563",
+                  }}
+                >
+                  {/* Scene color swatch */}
                   <span
-                    className="text-[9px] font-medium px-1 rounded-full flex-shrink-0"
-                    style={{
-                      background: isActive ? "rgba(99,102,241,0.3)" : "rgba(255,255,255,0.06)",
-                      color: isActive ? "#a5b4fc" : "#374151",
-                    }}
-                  >
-                    {scTrackCount}
+                    className="w-2 h-2 rounded-sm flex-shrink-0"
+                    style={{ background: sc.bg ?? "#334155", border: "1px solid rgba(255,255,255,0.15)" }}
+                  />
+                  <span className="text-[10px] font-semibold whitespace-nowrap" style={{ color: isActive ? "#c7d2fe" : "#6b7280" }}>
+                    {idx + 1}. {sc.label}
                   </span>
+                  {scTrackCount > 0 && (
+                    <span
+                      className="text-[9px] font-medium px-1 rounded-full flex-shrink-0"
+                      style={{
+                        background: isActive ? "rgba(99,102,241,0.3)" : "rgba(255,255,255,0.06)",
+                        color: isActive ? "#a5b4fc" : "#374151",
+                      }}
+                    >
+                      {scTrackCount}
+                    </span>
+                  )}
+                </button>
+
+                {/* Transition button between this scene and the next */}
+                {!isLast && (
+                  <TransitionButton
+                    sceneId={scenes[idx + 1].id}
+                    currentTransition={(scenes[idx + 1] as any).transition as TransitionType | undefined}
+                    onTransitionChange={(id, t) => updateSceneTransition(id, t)}
+                  />
                 )}
-              </button>
+              </div>
             );
           })}
         </div>
