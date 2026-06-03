@@ -47,10 +47,12 @@ function TransitionButton({
   sceneId,
   currentTransition,
   onTransitionChange,
+  label,
 }: {
   sceneId: string;
   currentTransition?: TransitionType;
   onTransitionChange: (id: string, t: TransitionType) => void;
+  label?: string;
 }) {
   const [open, setOpen] = useState(false);
   const [popoverPos, setPopoverPos] = useState({ top: 0, left: 0 });
@@ -106,10 +108,27 @@ function TransitionButton({
       }}
     >
       <p style={{ fontSize: 9, fontWeight: 600, color: "#6b7280", textTransform: "uppercase", letterSpacing: "0.05em", marginBottom: 6 }}>
-        Transition In
+        Scene Transition
       </p>
       <div style={{ display: "flex", flexDirection: "column", gap: 2 }}>
-        {TRANSITION_OPTIONS.map(t => (
+        {/* Remove button — only shown when a transition is active */}
+        {isSet && (
+          <button
+            onClick={() => { onTransitionChange(sceneId, "none"); setOpen(false); }}
+            style={{
+              display: "flex", alignItems: "center", gap: 6,
+              padding: "5px 8px", borderRadius: 8, fontSize: 10,
+              background: "rgba(239,68,68,0.12)",
+              color: "#f87171",
+              border: "1px solid rgba(239,68,68,0.25)", cursor: "pointer", textAlign: "left",
+              width: "100%", marginBottom: 4,
+            }}
+          >
+            <span style={{ fontSize: 13, width: 18, textAlign: "center" }}>✕</span>
+            <span style={{ fontWeight: 600 }}>Remove transition</span>
+          </button>
+        )}
+        {TRANSITION_OPTIONS.filter(t => t.type !== "none").map(t => (
           <button
             key={t.type}
             onClick={() => { onTransitionChange(sceneId, t.type); setOpen(false); }}
@@ -140,7 +159,7 @@ function TransitionButton({
       {/* The button */}
       <button
         ref={btnRef}
-        title={`Transition into next scene: ${opt?.label ?? "Cut"}`}
+        title={label ?? (isSet ? `Transition: ${opt?.label} (click to change or remove)` : "Add transition")}
         onClick={openPopover}
         className="flex-shrink-0 flex items-center justify-center rounded"
         style={{
@@ -690,6 +709,15 @@ export function Timeline() {
 
         {/* Scene pills with transition buttons between them */}
         <div className="flex items-center flex-1 min-w-0" style={{ gap: 0 }}>
+          {/* Transition button before Scene 1 — controls the intro transition */}
+          {scenes.length > 0 && (
+            <TransitionButton
+              sceneId={scenes[0].id}
+              currentTransition={(scenes[0] as any).transition as TransitionType | undefined}
+              onTransitionChange={(id, t) => updateSceneTransition(id, t)}
+              label="Intro transition"
+            />
+          )}
           {scenes.map((sc, idx) => {
             const isActive = sc.id === activeSceneId;
             const scTrackCount = tracks.filter(t => !t.sceneId || t.sceneId === sc.id).length;
