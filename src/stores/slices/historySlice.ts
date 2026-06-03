@@ -1,7 +1,8 @@
 import { StateCreator } from "zustand";
 import { EditorState } from "../editorStore";
 import { TrackObject } from "../../types";
-import { FabricImage, Path, filters, util } from "fabric";
+import { FabricImage, Path, filters } from "fabric";
+import type { SceneItem } from "./sceneSlice";
 
 // ── Serialized drawing object stored in history ────────────────────────────
 interface SerializedDrawing {
@@ -20,10 +21,17 @@ interface SerializedDrawing {
   pathOffset?: { x: number; y: number };
 }
 
-// ── History snapshot captures both tracks AND canvas drawings ──────────────
+// ── History snapshot: tracks + drawings + scenes + sceneCanvasData ─────────
 export interface HistorySnapshot {
   tracks: TrackObject[];
   drawings: SerializedDrawing[];
+  // Scene-level state
+  scenes: SceneItem[];
+  activeSceneId: string;
+  sceneCanvasData: Record<string, string>;
+  // Timeline-level state
+  duration: number;
+  projectName: string;
 }
 
 export interface HistorySlice {
@@ -47,6 +55,10 @@ const cloneTracksForHistory = (tracks: TrackObject[]): TrackObject[] => {
     audioSrc: t.audioSrc,
   }));
 };
+
+// ── Deep-clone scenes for storage ─────────────────────────────────────────
+const cloneScenesForHistory = (scenes: SceneItem[]): SceneItem[] =>
+  scenes.map((s) => ({ ...s }));
 
 // ── Serialize all drawing objects from the canvas ──────────────────────────
 const serializeDrawings = (canvas: any): SerializedDrawing[] => {
@@ -74,14 +86,10 @@ const serializeDrawings = (canvas: any): SerializedDrawing[] => {
 // ── Restore drawings onto the canvas from serialized state ─────────────────
 const restoreDrawings = (canvas: any, drawings: SerializedDrawing[]) => {
   if (!canvas) return;
-
-  // Remove all existing drawing objects
   const existing = canvas
     .getObjects()
     .filter((obj: any) => obj.customType === "drawing");
   existing.forEach((obj: any) => canvas.remove(obj));
-
-  // Re-create each drawing
   drawings.forEach((d) => {
     const newPath = new Path(d.path as any, {
       stroke: d.stroke,
@@ -117,7 +125,7 @@ const buildImageFilters = (filterKeys: string[]) => {
   return filterKeys.map((key) => map[key]).filter(Boolean).map((f) => f());
 };
 
-// ── Apply a snapshot (tracks + drawings) to canvas ────────────────────────
+// ── Apply a full snapshot to the store + canvas ────────────────────────────
 const applySnapshot = (
   snapshot: HistorySnapshot,
   canvas: any,
@@ -126,7 +134,16 @@ const applySnapshot = (
   set: (partial: Partial<EditorState>) => void,
   get: () => EditorState
 ) => {
-  const { tracks: previous, drawings } = snapshot;
+  const { tracks: previous, drawings, scenes, activeSceneId, sceneCanvasData, duration, projectName } = snapshot;
+
+  // ── Restore scene-level state ──────────────────────────────────────────────
+  set({
+    scenes: cloneScenesForHistory(scenes),
+    activeSceneId,
+    sceneCanvasData: { ...sceneCanvasData },
+    duration,
+    projectName,
+  });
 
   if (!canvas) {
     set({ tracks: previous });
@@ -176,7 +193,6 @@ const applySnapshot = (
     // Special: recreate video element if missing
     const recreateVideo = () => {
       if (track.type !== "video" || !track.audioSrc) return false;
-
       const videoEl = document.createElement("video");
       videoEl.src = track.audioSrc;
       videoEl.preload = "auto";
@@ -188,7 +204,6 @@ const applySnapshot = (
       videoEl.width = 480;
       videoEl.height = 360;
       document.body.appendChild(videoEl);
-
       const fabricVideo = new FabricImage(videoEl as any, {
         left: 0,
         top: 0,
@@ -218,12 +233,26 @@ const applySnapshot = (
     }
   });
 
-  // Restore drawings
   restoreDrawings(canvas, drawings);
 
   set({ tracks: previous });
   applyKeyframesAtTime(currentTime);
   canvas.requestRenderAll();
+};
+
+// ── Build a snapshot from current state ────────────────────────────────────
+const buildSnapshot = (get: () => EditorState): HistorySnapshot => {
+  const state = get();
+  const canvas = state.canvas;
+  return {
+    tracks: cloneTracksForHistory(state.tracks),
+    drawings: serializeDrawings(canvas),
+    scenes: cloneScenesForHistory((state as any).scenes ?? []),
+    activeSceneId: (state as any).activeSceneId ?? "",
+    sceneCanvasData: { ...((state as any).sceneCanvasData ?? {}) },
+    duration: state.duration,
+    projectName: (state as any).projectName ?? "",
+  };
 };
 
 // ── Slice ──────────────────────────────────────────────────────────────────
@@ -232,29 +261,19 @@ export const createHistorySlice: StateCreator<EditorState, [], [], HistorySlice>
   future: [],
 
   saveCheckpoint: () => {
-    const { tracks, past, canvas } = get();
-    const drawings = serializeDrawings(canvas);
-    const snapshot: HistorySnapshot = {
-      tracks: cloneTracksForHistory(tracks),
-      drawings,
-    };
+    const { past } = get();
+    const snapshot = buildSnapshot(get);
     const newPast = [...past, snapshot].slice(-50);
     set({ past: newPast, future: [] });
   },
 
   undo: () => {
-    const { past, future, tracks, canvas, currentTime, applyKeyframesAtTime } = get();
+    const { past, future, canvas, currentTime, applyKeyframesAtTime } = get();
     if (past.length === 0) return;
 
     const previous = past[past.length - 1];
     const newPast = past.slice(0, past.length - 1);
-
-    // Save current state to future before changing
-    const currentDrawings = serializeDrawings(canvas);
-    const currentSnapshot: HistorySnapshot = {
-      tracks: cloneTracksForHistory(tracks),
-      drawings: currentDrawings,
-    };
+    const currentSnapshot = buildSnapshot(get);
 
     set({
       past: newPast,
@@ -265,18 +284,12 @@ export const createHistorySlice: StateCreator<EditorState, [], [], HistorySlice>
   },
 
   redo: () => {
-    const { past, future, tracks, canvas, currentTime, applyKeyframesAtTime } = get();
+    const { past, future, canvas, currentTime, applyKeyframesAtTime } = get();
     if (future.length === 0) return;
 
     const next = future[0];
     const newFuture = future.slice(1);
-
-    // Save current state to past before changing
-    const currentDrawings = serializeDrawings(canvas);
-    const currentSnapshot: HistorySnapshot = {
-      tracks: cloneTracksForHistory(tracks),
-      drawings: currentDrawings,
-    };
+    const currentSnapshot = buildSnapshot(get);
 
     set({
       past: [...past, currentSnapshot],
