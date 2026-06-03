@@ -130,6 +130,9 @@ export function CanvasEditor() {
         }
         
         pixiAppRef.current = pixiApp;
+        // Expose on window so canvasSlice can trigger an immediate render
+        // after property changes (e.g. flip) without waiting for the next tick
+        (window as any).__pixiApp = pixiApp;
 
         // Enable zIndex-based sorting so characters always render above props
         pixiApp.stage.sortableChildren = true;
@@ -300,14 +303,18 @@ export function CanvasEditor() {
       if ((obj as any).customType === 'character') {
         const display = (obj as any).armatureDisplay;
         if (display) {
-          const dbScale = (obj as any).dbScale ?? 1;
-          const charW   = (obj as any).charW   ?? (obj.width  || 103);
-          const charH   = (obj as any).charH   ?? (obj.height || 300);
+          const dbScale    = (obj as any).dbScale ?? 1;
+          const charW      = (obj as any).charW   ?? (obj.width  || 103);
+          const charH      = (obj as any).charH   ?? (obj.height || 300);
           const userScaleX = obj.scaleX || 1;
           const userScaleY = obj.scaleY || 1;
+          const flipSignX  = obj.flipX ? -1 : 1;
+          const flipSignY  = obj.flipY ? -1 : 1;
+          display.scale.x  = dbScale * userScaleX * flipSignX;
+          display.scale.y  = dbScale * userScaleY * flipSignY;
           display.x = (obj.left || 0) + (charW * userScaleX) / 2;
           display.y = (obj.top  || 0) +  charH * userScaleY;
-          display.scale.set(dbScale * Math.max(userScaleX, userScaleY));
+          display.alpha = obj.opacity ?? 1;
         }
       }
 
@@ -315,12 +322,23 @@ export function CanvasEditor() {
         const display = (obj as any).armatureDisplay;
         if (display) {
           const dbScale    = (obj as any).dbScale ?? 1;
-          const userScale  = Math.max(obj.scaleX || 1, obj.scaleY || 1);
+          const userScaleX = obj.scaleX || 1;
+          const userScaleY = obj.scaleY || 1;
+          const userScale  = Math.max(userScaleX, userScaleY);
           const baseOffX   = (obj as any).propOffsetX ?? 0;
           const baseOffY   = (obj as any).propOffsetY ?? 0;
-          display.x = (obj.left || 0) + baseOffX * userScale;
+          const flipSignX  = obj.flipX ? -1 : 1;
+          const flipSignY  = obj.flipY ? -1 : 1;
+          display.scale.x  = dbScale * userScale * flipSignX;
+          display.scale.y  = dbScale * userScale * flipSignY;
+          if (obj.flipX) {
+            const proxyW = (obj as any).propW ?? (obj.width || 120);
+            display.x = (obj.left || 0) + proxyW * userScale - baseOffX * userScale;
+          } else {
+            display.x = (obj.left || 0) + baseOffX * userScale;
+          }
           display.y = (obj.top  || 0) + baseOffY * userScale;
-          display.scale.set(dbScale * userScale);
+          display.alpha = obj.opacity ?? 1;
         }
       }
 
@@ -349,14 +367,21 @@ export function CanvasEditor() {
       if (target && (target as any).customType === "character") {
         const display = (target as any).armatureDisplay;
         if (display) {
-          const dbScale = (target as any).dbScale ?? 1;
-          const charW   = (target as any).charW   ?? (target.width  || 103);
-          const charH   = (target as any).charH   ?? (target.height || 300);
+          const dbScale    = (target as any).dbScale ?? 1;
+          const charW      = (target as any).charW   ?? (target.width  || 103);
+          const charH      = (target as any).charH   ?? (target.height || 300);
           const userScaleX = target.scaleX || 1;
           const userScaleY = target.scaleY || 1;
-          display.x = (target.left || 0) + (charW * userScaleX) / 2;
-          display.y = (target.top  || 0) +  charH * userScaleY;
-          display.scale.set(dbScale * Math.max(userScaleX, userScaleY));
+          const flipSignX  = target.flipX ? -1 : 1;
+          const flipSignY  = target.flipY ? -1 : 1;
+          display.scale.x  = dbScale * userScaleX * flipSignX;
+          display.scale.y  = dbScale * userScaleY * flipSignY;
+          display.x = target.flipX
+            ? (target.left || 0) + (charW * userScaleX) / 2 + charW * userScaleX * 0
+            : (target.left || 0) + (charW * userScaleX) / 2;
+          display.y = (target.top || 0) + charH * userScaleY;
+          // Apply opacity from proxy to armature display
+          display.alpha = target.opacity ?? 1;
         }
       }
 
@@ -364,12 +389,24 @@ export function CanvasEditor() {
         const display = (target as any).armatureDisplay;
         if (display) {
           const dbScale   = (target as any).dbScale ?? 1;
-          const userScale = Math.max(target.scaleX || 1, target.scaleY || 1);
+          const userScaleX = target.scaleX || 1;
+          const userScaleY = target.scaleY || 1;
+          const userScale = Math.max(userScaleX, userScaleY);
           const baseOffX  = (target as any).propOffsetX ?? 0;
           const baseOffY  = (target as any).propOffsetY ?? 0;
-          display.x = (target.left || 0) + baseOffX * userScale;
-          display.y = (target.top  || 0) + baseOffY * userScale;
-          display.scale.set(dbScale * userScale);
+          const flipSignX = target.flipX ? -1 : 1;
+          const flipSignY = target.flipY ? -1 : 1;
+          display.scale.x = dbScale * userScale * flipSignX;
+          display.scale.y = dbScale * userScale * flipSignY;
+          if (target.flipX) {
+            const proxyW = (target as any).propW ?? (target.width || 120);
+            display.x = (target.left || 0) + proxyW * userScale - baseOffX * userScale;
+          } else {
+            display.x = (target.left || 0) + baseOffX * userScale;
+          }
+          display.y = (target.top || 0) + baseOffY * userScale;
+          // Apply opacity from proxy to armature display
+          display.alpha = target.opacity ?? 1;
         }
       }
 

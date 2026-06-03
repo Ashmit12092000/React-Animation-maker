@@ -86,6 +86,9 @@ export const createCanvasSlice: StateCreator<EditorState, [], [], CanvasSlice> =
     if (property === 'angle' || property === 'left' || property === 'top') {
       selectedObject.setCoords();
     }
+    // Fire object:modified so CanvasEditor's PIXI armature sync handler
+    // (object:moving / object:modified) re-syncs characters and props
+    canvas?.fire('object:modified', { target: selectedObject });
     canvas?.renderAll();
     // Update initialState without flooding history (captureState handles dedup)
     get().captureState(selectedObjectId);
@@ -176,12 +179,66 @@ export const createCanvasSlice: StateCreator<EditorState, [], [], CanvasSlice> =
 
   flipObject: (direction) => {
     const { selectedObject, canvas, selectedObjectId } = get();
-    if (selectedObject && canvas && selectedObjectId) {
-      if (direction === "horizontal") selectedObject.set("flipX", !selectedObject.flipX);
-      else selectedObject.set("flipY", !selectedObject.flipY);
-      canvas.renderAll();
-      get().captureState(selectedObjectId);
+    if (!selectedObject || !canvas || !selectedObjectId) return;
+
+    if (direction === "horizontal") {
+      selectedObject.set("flipX", !selectedObject.flipX);
+    } else {
+      selectedObject.set("flipY", !selectedObject.flipY);
     }
+    selectedObject.setCoords();
+
+    // Sync the PIXI DragonBones armature scale for characters and props
+    const customType = (selectedObject as any).customType;
+    const display = (selectedObject as any).armatureDisplay;
+    if (display && (customType === "character" || customType === "prop")) {
+      const dbScale    = (selectedObject as any).dbScale ?? 1;
+      const userScaleX = selectedObject.scaleX || 1;
+      const userScaleY = selectedObject.scaleY || 1;
+      const flipSignX  = selectedObject.flipX ? -1 : 1;
+      const flipSignY  = selectedObject.flipY ? -1 : 1;
+
+      if (customType === "character") {
+        const charW = (selectedObject as any).charW ?? (selectedObject.width  || 103);
+        const charH = (selectedObject as any).charH ?? (selectedObject.height || 300);
+        display.scale.x = dbScale * userScaleX * flipSignX;
+        display.scale.y = dbScale * userScaleY * flipSignY;
+        // Recalculate anchor point: when flipped, the PIXI origin shifts
+        if (selectedObject.flipX) {
+          display.x = (selectedObject.left || 0) + (charW * userScaleX) - (charW * userScaleX) / 2;
+        } else {
+          display.x = (selectedObject.left || 0) + (charW * userScaleX) / 2;
+        }
+        display.y = (selectedObject.top || 0) + charH * userScaleY;
+      } else {
+        const baseOffX = (selectedObject as any).propOffsetX ?? 0;
+        const baseOffY = (selectedObject as any).propOffsetY ?? 0;
+        const userScale = Math.max(userScaleX, userScaleY);
+        display.scale.x = dbScale * userScale * flipSignX;
+        display.scale.y = dbScale * userScale * flipSignY;
+        if (selectedObject.flipX) {
+          const proxyW = (selectedObject as any).propW ?? (selectedObject.width || 120);
+          display.x = (selectedObject.left || 0) + proxyW * userScale - baseOffX * userScale;
+        } else {
+          display.x = (selectedObject.left || 0) + baseOffX * userScale;
+        }
+        display.y = (selectedObject.top || 0) + baseOffY * userScale;
+      }
+    }
+
+    // Fire object:modified so CanvasEditor's PIXI sync handler runs immediately,
+    // then force a synchronous PIXI render so the flip is visible right away
+    // without needing to drag the character first.
+    canvas.fire('object:modified', { target: selectedObject });
+    canvas.renderAll();
+
+    // Force PIXI to render the updated armature display immediately
+    const pixiApp = (window as any).__pixiApp as { renderer?: { render: (stage: any) => void }; stage?: any } | undefined;
+    if (pixiApp?.renderer && pixiApp?.stage) {
+      pixiApp.renderer.render(pixiApp.stage);
+    }
+
+    get().captureState(selectedObjectId);
   },
 
 rotateImage: () => {

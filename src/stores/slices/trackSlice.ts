@@ -623,20 +623,26 @@ export const createTrackSlice: StateCreator<EditorState, [], [], TrackSlice> = (
             scaleY:  s.scaleY  ?? track.fabricObject.scaleY,
             angle:   s.angle   ?? track.fabricObject.angle,
             opacity: s.opacity ?? track.fabricObject.opacity,
+            flipX:   s.flipX   ?? track.fabricObject.flipX,
+            flipY:   s.flipY   ?? track.fabricObject.flipY,
           });
           track.fabricObject.setCoords();
           track.fabricObject.dirty = true;
           // Also sync DragonBones display position for stationary characters
           const dispStatic = (track.fabricObject as any).armatureDisplay;
           if (dispStatic) {
-            const dbScale = (track.fabricObject as any).dbScale ?? 1;
-            const charW   = (track.fabricObject as any).charW   ?? (track.fabricObject.width  || 103);
-            const charH   = (track.fabricObject as any).charH   ?? (track.fabricObject.height || 300);
-            const usx = track.fabricObject.scaleX || 1;
-            const usy = track.fabricObject.scaleY || 1;
+            const dbScale  = (track.fabricObject as any).dbScale ?? 1;
+            const charW    = (track.fabricObject as any).charW   ?? (track.fabricObject.width  || 103);
+            const charH    = (track.fabricObject as any).charH   ?? (track.fabricObject.height || 300);
+            const usx      = track.fabricObject.scaleX || 1;
+            const usy      = track.fabricObject.scaleY || 1;
+            const flipSignX = (s.flipX ?? track.fabricObject.flipX) ? -1 : 1;
+            const flipSignY = (s.flipY ?? track.fabricObject.flipY) ? -1 : 1;
+            dispStatic.scale.x = dbScale * usx * flipSignX;
+            dispStatic.scale.y = dbScale * usy * flipSignY;
             dispStatic.x = (s.left ?? 0) + (charW * usx) / 2;
             dispStatic.y = (s.top  ?? 0) +  charH * usy;
-            dispStatic.scale.set(dbScale * Math.max(usx, usy));
+            dispStatic.alpha = s.opacity ?? track.fabricObject.opacity ?? 1;
           }
         }
       }
@@ -721,19 +727,19 @@ export const createTrackSlice: StateCreator<EditorState, [], [], TrackSlice> = (
         // Sync PIXI DragonBones display position
         const display = (track.fabricObject as any).armatureDisplay;
         if (display) {
-          // Always make the armature visible during path playback.
-          // It may have been hidden (visible=false) by a t=0 reset and the
-          // conditional re-show block above only fires when visible===false,
-          // which can race with this block on the very first frame.
           display.visible = true;
-          const dbScale = (track.fabricObject as any).dbScale ?? 1;
-          const charW   = (track.fabricObject as any).charW   ?? (track.fabricObject.width  || 103);
-          const charH   = (track.fabricObject as any).charH   ?? (track.fabricObject.height || 300);
-          const usx = track.fabricObject.scaleX || 1;
-          const usy = track.fabricObject.scaleY || 1;
+          const dbScale   = (track.fabricObject as any).dbScale ?? 1;
+          const charW     = (track.fabricObject as any).charW   ?? (track.fabricObject.width  || 103);
+          const charH     = (track.fabricObject as any).charH   ?? (track.fabricObject.height || 300);
+          const usx       = track.fabricObject.scaleX || 1;
+          const usy       = track.fabricObject.scaleY || 1;
+          const flipSignX = ((track.initialState as any)?.flipX ?? track.fabricObject.flipX) ? -1 : 1;
+          const flipSignY = ((track.initialState as any)?.flipY ?? track.fabricObject.flipY) ? -1 : 1;
+          display.scale.x = dbScale * usx * flipSignX;
+          display.scale.y = dbScale * usy * flipSignY;
           display.x = newLeft + (charW * usx) / 2;
           display.y = newTop  +  charH * usy;
-          display.scale.set(dbScale * Math.max(usx, usy));
+          display.alpha = track.fabricObject.opacity ?? 1;
 
           // ── Sequence action ──────────────────────────────────────────────
           if (seqAction && seqAction.steps.length > 0) {

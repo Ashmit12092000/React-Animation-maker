@@ -170,28 +170,6 @@ export function PathDrawOverlay({ canvasWidth, canvasHeight }: Props) {
     <>
       {pathDrawMode && (
         <div className="absolute inset-0 z-50" style={{ cursor: "crosshair" }}>
-          {/* Instruction banner */}
-          <div
-            className="absolute top-3 left-1/2 -translate-x-1/2 z-10 px-4 py-2 rounded-full text-sm font-semibold shadow-lg pointer-events-none"
-            style={{
-              background:  "linear-gradient(135deg, #6366f1 0%, #a855f7 100%)",
-              color:       "#fff",
-              boxShadow:   "0 4px 24px rgba(99,102,241,0.5)",
-              letterSpacing: "0.02em",
-            }}
-          >
-            ✏️ Draw a path for{" "}
-            <span style={{ color: "#fde68a" }}>{track?.name ?? "object"}</span>
-            &nbsp;·&nbsp;Release to confirm&nbsp;·&nbsp;
-            <span
-              className="pointer-events-auto cursor-pointer underline"
-              onClick={() => setPathDrawMode(false)}
-              style={{ color: "#fca5a5" }}
-            >
-              Cancel
-            </span>
-          </div>
-
           <svg
             ref={svgRef}
             width="100%"
