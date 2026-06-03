@@ -88,6 +88,10 @@ export async function loadCharacter(
   const display = factory.buildArmatureDisplay(armatureName);
   if (!display) throw new Error(`[DragonBones] Could not build armature: ${armatureName}`);
 
+  // Disable the hardcoded debugDraw in dragonbones-pixi.js (line 9025) which
+  // draws cyan circles at every bone joint.
+  (display as any).debugDraw = false;
+
   // Hide IK target slots
   for (const slot of display.armature.getSlots()) {
     if (slot.name.toLowerCase().includes("iktarget") || slot.name.toLowerCase().includes("ik_target")) {
@@ -175,6 +179,9 @@ export async function loadProp(
   const factory = PixiFactory.factory;
   const display = factory.buildArmatureDisplay(propName);
   if (!display) throw new Error(`[DragonBones] Could not build prop armature: ${propName}`);
+
+  // Suppress the hardcoded debugDraw cyan joint markers.
+  (display as any).debugDraw = false;
 
   const aabb = PROP_AABB[propName];
   const root = PROP_ROOT_OFFSET[propName];
