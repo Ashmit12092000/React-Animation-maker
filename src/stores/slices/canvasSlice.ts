@@ -463,6 +463,25 @@ rotateImage: () => {
       }
     }
 
+    // Handle trackless orphan objects (e.g. a detached solid-color background
+    // rect that has no _customId / track). selectedObjectId is null for these,
+    // so the guard below would skip them entirely — remove them directly.
+    if (canvas && !selectedObjectId) {
+      const activeObj = canvas.getActiveObject();
+      if (activeObj && !(activeObj as any)._customId) {
+        (activeObj as any)._pendingDelete = true;
+        canvas.remove(activeObj);
+        canvas.discardActiveObject();
+        canvas.requestRenderAll();
+        // If this was a detached solid-color bg rect, clear sc.bg in the scene
+        // store so the reconciler doesn't re-create it on next scene switch.
+        const { activeSceneId, setSceneBg } = get();
+        if (activeSceneId) setSceneBg(activeSceneId, "");
+        set({ selectedObjectId: null, selectedObject: null, selectedTrackId: null });
+        return;
+      }
+    }
+
     if (selectedObjectId) {
       // Check if the selected object is a freehand drawing (no track — remove directly from canvas)
       const activeObj = canvas?.getActiveObject();
