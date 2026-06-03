@@ -1810,11 +1810,21 @@ export function CanvasEditor() {
       // Restore complete — applyKeyframesAtTime may resume calling canvas.add()
       setSceneRestoring(false);
 
-      // Fix background colour
+      // Fix background — always reconcile the canvas background with the
+      // scene store's current state.  This covers three cases:
+      //   1. No bgObj at all → create a solid colour rect.
+      //   2. bgObj is a colour Rect → update its fill to sc.bg.
+      //   3. bgObj is a FabricImage but sc.bgImageUrl is now undefined (the
+      //      user switched to solid colour after the last snapshot was saved) →
+      //      replace the stale image with a fresh solid colour rect so the
+      //      background does not bleed across from the old state.
       const sc = useEditorStore.getState().scenes.find(s => s.id === activeSceneId);
       if (sc) {
         const bgObj = canvas.getObjects().find((o: any) => (o as any).customType === "background");
+        const bgIsImage = bgObj && (bgObj as any).type === "image";
+
         if (!bgObj) {
+          // Case 1 — no background object; create one.
           const bg = new Rect({
             left: 0, top: 0,
             width: canvas.getWidth(), height: canvas.getHeight(),
@@ -1827,9 +1837,26 @@ export function CanvasEditor() {
           (bg as any).customType = "background";
           canvas.add(bg);
           canvas.sendObjectToBack(bg);
-        } else if ((bgObj as any).type !== "image") {
-          // Only update the fill when the background is a colour rect, not an image
+        } else if (bgIsImage && !sc.bgImageUrl) {
+          // Case 3 — stale image background but scene now wants solid colour.
+          // Remove the image and lay down a solid rect instead.
+          canvas.remove(bgObj);
+          const bg = new Rect({
+            left: 0, top: 0,
+            width: canvas.getWidth(), height: canvas.getHeight(),
+            fill: sc.bg,
+            selectable: false, evented: false,
+            lockMovementX: true, lockMovementY: true,
+            lockScalingX: true, lockScalingY: true,
+            lockRotation: true, hasControls: false, hasBorders: false,
+          });
+          (bg as any).customType = "background";
+          canvas.add(bg);
+          canvas.sendObjectToBack(bg);
+        } else if (!bgIsImage) {
+          // Case 2 — existing colour rect; update fill.
           (bgObj as any).set({ fill: sc.bg });
+          (bgObj as any).dirty = true;
         }
       }
 
@@ -1942,16 +1969,55 @@ export function CanvasEditor() {
   }, [activeSceneId, saveSceneCanvasData, getSceneCanvasData, updateSceneThumbnail, setSelectedObject]);
 
   // When scene bg changes (from Backgrounds tab), update canvas background live.
-  // Only apply the colour fill when the current background is a Rect (solid colour),
-  // not when it is a FabricImage that the user pinned with "Set as Background".
+  // Handles three sub-cases:
+  //   a. bgObj is a colour Rect  → update fill directly.
+  //   b. bgObj is a FabricImage but sc.bgImageUrl is now gone (user switched to
+  //      solid colour) → replace the image with a solid rect immediately so the
+  //      old image does not linger until the next scene restore cycle.
+  //   c. No bgObj at all → create a fresh solid rect.
   useEffect(() => {
     const canvas = fabricRef.current;
     if (!canvas) return;
     const sc = scenes.find(s => s.id === activeSceneId);
     if (!sc) return;
     const bgObj = canvas.getObjects().find((o: any) => (o as any).customType === "background");
-    if (bgObj && (bgObj as any).type !== "image") {
+    const bgIsImage = bgObj && (bgObj as any).type === "image";
+
+    if (bgIsImage && !sc.bgImageUrl) {
+      // Sub-case b: stale image, scene now wants solid colour.
+      canvas.remove(bgObj);
+      const bg = new Rect({
+        left: 0, top: 0,
+        width: canvas.getWidth(), height: canvas.getHeight(),
+        fill: sc.bg,
+        selectable: false, evented: false,
+        lockMovementX: true, lockMovementY: true,
+        lockScalingX: true, lockScalingY: true,
+        lockRotation: true, hasControls: false, hasBorders: false,
+      });
+      (bg as any).customType = "background";
+      canvas.add(bg);
+      canvas.sendObjectToBack(bg);
+      canvas.renderAll();
+    } else if (bgObj && !bgIsImage) {
+      // Sub-case a: existing colour rect, just update the fill.
       (bgObj as any).set({ fill: sc.bg });
+      (bgObj as any).dirty = true;
+      canvas.renderAll();
+    } else if (!bgObj) {
+      // Sub-case c: no background at all — create one.
+      const bg = new Rect({
+        left: 0, top: 0,
+        width: canvas.getWidth(), height: canvas.getHeight(),
+        fill: sc.bg,
+        selectable: false, evented: false,
+        lockMovementX: true, lockMovementY: true,
+        lockScalingX: true, lockScalingY: true,
+        lockRotation: true, hasControls: false, hasBorders: false,
+      });
+      (bg as any).customType = "background";
+      canvas.add(bg);
+      canvas.sendObjectToBack(bg);
       canvas.renderAll();
     }
   }, [scenes, activeSceneId]);

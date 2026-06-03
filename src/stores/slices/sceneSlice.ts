@@ -141,7 +141,10 @@ export const createSceneSlice: StateCreator<EditorState, [], [], SceneSlice> = (
   setSceneBg: (id, bg, lottieUrl, lottieEmoji) => {
     set((s) => ({
       scenes: s.scenes.map((x) =>
-        x.id === id ? { ...x, bg, lottieUrl, lottieEmoji } : x
+        // Always clear bgImageUrl when explicitly setting a solid/lottie
+        // background — otherwise a stale image URL would be re-applied the
+        // next time the scene is restored from scratch (no saved canvas data).
+        x.id === id ? { ...x, bg, lottieUrl, lottieEmoji, bgImageUrl: undefined } : x
       ),
     }));
   },
