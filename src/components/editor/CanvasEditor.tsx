@@ -28,7 +28,7 @@ FabricObject.customProperties = [
 ];
 import * as PIXI from "pixi.js";
 import { useEditorStore, type Asset } from "@/stores/editorStore";
-import { setSceneRestoring } from "@/stores/slices/trackSlice";
+import { setSceneRestoring, isSceneRestoring } from "@/stores/slices/trackSlice";
 import { ContextMenu } from "./ContextMenu";
 import { AudioFilterPanel } from "./AudioFilterPanel";
 import { PathDrawOverlay } from "./PathDrawOverlay";
@@ -88,6 +88,7 @@ export function CanvasEditor() {
     getSceneCanvasData,
     updateSceneThumbnail,
     updateSceneBgImage,
+    setSceneBg,
   } = useEditorStore();
   // read saveCheckpoint directly when needed
   const { saveCheckpoint } = useEditorStore.getState
@@ -1558,6 +1559,15 @@ export function CanvasEditor() {
       canvas.add(bg);
       canvas.sendObjectToBack(bg);
     }
+
+    // ── Persist the chosen colour into the scene store ─────────────────────
+    // Without this, sc.bg stays stale. On scene switch the reconcile code in
+    // afterLoad re-applies the old sc.bg over the newly chosen colour, making
+    // the background appear to "revert" whenever you leave and return to the
+    // scene.  Keeping the store in sync means the reconcile always reinforces
+    // the correct colour rather than overwriting it.
+    const { activeSceneId: sceneId } = useEditorStore.getState();
+    useEditorStore.getState().setSceneBg(sceneId, color);
   }, []);
 
   const addTextToCanvas = useCallback(
@@ -1978,6 +1988,12 @@ export function CanvasEditor() {
   useEffect(() => {
     const canvas = fabricRef.current;
     if (!canvas) return;
+    // ── Guard: skip while a scene switch is in flight ────────────────────────
+    // prevSceneIdRef trails activeSceneId until the switch effect runs. If we
+    // mutate the canvas background during that window we corrupt the snapshot
+    // being serialised for the leaving scene, causing its bg colour to bleed
+    // into the incoming scene on every subsequent switch.
+    if (isSceneRestoring || prevSceneIdRef.current !== activeSceneId) return;
     const sc = scenes.find(s => s.id === activeSceneId);
     if (!sc) return;
     const bgObj = canvas.getObjects().find((o: any) => (o as any).customType === "background");
