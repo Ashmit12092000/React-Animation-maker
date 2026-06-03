@@ -19,6 +19,7 @@ export function Toolbar() {
     activeSceneId,
     setActiveScene,
     saveSceneCanvasData,
+    sceneCanvasData,
     duration,
     deleteSelected,
     clearCanvas,
@@ -75,7 +76,18 @@ export function Toolbar() {
   const handleExport  = () => exportSceneJSON(canvas, tracks, projectName);
 
   const handleSave = () => {
-    saveProject(canvas, tracks, projectName, duration);
+    // Snapshot the currently active scene's canvas before saving —
+    // sceneCanvasData only holds previously-switched-away scenes,
+    // so the live scene must be captured here explicitly.
+    let latestSceneCanvasData = sceneCanvasData;
+    if (canvas && activeSceneId) {
+      try {
+        const json = JSON.stringify(canvas.toJSON());
+        latestSceneCanvasData = { ...sceneCanvasData, [activeSceneId]: json };
+        saveSceneCanvasData(activeSceneId, json);
+      } catch {}
+    }
+    saveProject(canvas, tracks, projectName, duration, scenes, activeSceneId, latestSceneCanvasData);
     setSaveFlash(true);
     setTimeout(() => setSaveFlash(false), 2000);
   };
@@ -183,6 +195,15 @@ export function Toolbar() {
         clearCanvas,
         addTrack,
         saveCheckpoint,
+        setScenes: (savedScenes) => {
+          // Directly push into Zustand store — addScene one-by-one would
+          // mutate activeSceneId; instead we replace the whole array at once.
+          useEditorStore.setState({ scenes: savedScenes });
+        },
+        setActiveSceneId: (id) => {
+          useEditorStore.setState({ activeSceneId: id });
+        },
+        saveSceneCanvasData,
       });
       if (pendingArmatures.length > 0) setPendingArmatures(pendingArmatures);
       if (warnings.length > 0) setLoadWarnings(warnings);
