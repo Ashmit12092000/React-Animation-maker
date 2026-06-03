@@ -1497,28 +1497,50 @@ export function CanvasEditor() {
         })();
         return;
       } else {
-        // Background Logic
-        const bg = new Rect({
-          left: 0,
-          top: 0,
-          width: canvasRef.current?.width || 960,
-          height: canvasRef.current?.height || 540,
-          fill: asset.color,
-          selectable: true,
-          evented: false,
-          hasControls: false,
-          hasBorders: true,
-          lockMovementX: true,
-          lockMovementY: true,
-          lockScalingX: true,
-          lockScalingY: true,
-          lockRotation: true,
-        });
+        // Background Logic — replace the existing background rect rather than
+        // stacking a new one on top of it.
+        const canvas = fabricRef.current;
+        const existingBg = canvas
+          .getObjects()
+          .find((o: any) => (o as any).customType === "background");
 
-        // checkpoint before adding/modifying background
         saveCheckpoint();
-        fabricRef.current.add(bg);
-        fabricRef.current.moveObjectTo(bg, 0);
+
+        if (existingBg) {
+          // Just swap the fill on the rect that's already there.
+          existingBg.set({ fill: asset.color });
+          canvas.renderAll();
+        } else {
+          const bg = new Rect({
+            left: 0,
+            top: 0,
+            width: canvasRef.current?.width || 960,
+            height: canvasRef.current?.height || 540,
+            fill: asset.color,
+            selectable: false,
+            evented: false,
+            hasControls: false,
+            hasBorders: false,
+            lockMovementX: true,
+            lockMovementY: true,
+            lockScalingX: true,
+            lockScalingY: true,
+            lockRotation: true,
+          });
+
+          // Required so every downstream guard (removeBackground, scene
+          // reconciliation, serialisation filters) can identify this rect.
+          (bg as any).customType = "background";
+          canvas.add(bg);
+          canvas.sendObjectToBack(bg);
+          canvas.renderAll();
+        }
+
+        // Persist the chosen colour into the scene store so that the
+        // scene-switch reconciler re-applies the correct colour (not a stale
+        // one) whenever the user leaves and returns to this scene.
+        const { activeSceneId: sceneId } = useEditorStore.getState();
+        useEditorStore.getState().setSceneBg(sceneId, asset.color!);
       }
     },
     [addTrack, setSelectedObject, currentTime],
