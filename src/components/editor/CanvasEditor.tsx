@@ -222,6 +222,42 @@ export function CanvasEditor() {
       }
     });
 
+    // Long-press on touch devices to open context menu
+    let longPressTimer: ReturnType<typeof setTimeout> | null = null;
+    const LONG_PRESS_MS = 500;
+    const handleTouchStart = (opt: any) => {
+      const touch = opt.e?.touches?.[0];
+      if (!touch) return;
+      longPressTimer = setTimeout(() => {
+        const target = canvas.findTarget(opt.e);
+        if (target) {
+          canvas.setActiveObject(target);
+          setSelectedObject((target as any)._customId, target);
+          canvas.renderAll();
+        } else {
+          canvas.discardActiveObject();
+          setSelectedObject(null, null);
+          canvas.renderAll();
+        }
+        handleSelectionLocks();
+        setContextMenu({
+          visible: true,
+          x: touch.clientX,
+          y: touch.clientY - 50,
+        });
+      }, LONG_PRESS_MS);
+    };
+    const cancelLongPress = () => {
+      if (longPressTimer) { clearTimeout(longPressTimer); longPressTimer = null; }
+    };
+    canvas.on("touch:gesture", cancelLongPress);
+    canvas.on("object:moving", cancelLongPress);
+    canvas.upperCanvasEl?.addEventListener("touchstart", (e: TouchEvent) => {
+      handleTouchStart({ e });
+    }, { passive: true });
+    canvas.upperCanvasEl?.addEventListener("touchend", cancelLongPress, { passive: true });
+    canvas.upperCanvasEl?.addEventListener("touchmove", cancelLongPress, { passive: true });
+
     // Helper: show/hide dotted proxy border based on selection state
     const showProxyBorder = (obj: FabricObject) => {
       if ((obj as any)._proxyStroke) {
@@ -2077,13 +2113,15 @@ export function CanvasEditor() {
     (window as any).__addTextToCanvas = addTextToCanvas;
     (window as any).__removeBackground = removeBackground;
     (window as any).__addShapeToCanvas = addAssetToCanvas;
+    (window as any).__addAssetToCanvas = addAssetToCanvas;
     return () => {
       delete (window as any).__setBackground;
       delete (window as any).__addTextToCanvas;
       delete (window as any).__removeBackground;
       delete (window as any).__addShapeToCanvas;
+      delete (window as any).__addAssetToCanvas;
     };
-  }, [setBackground, addTextToCanvas, removeBackground]);
+  }, [setBackground, addTextToCanvas, removeBackground, addAssetToCanvas]);
 
   const handleDrop = useCallback(
     (e: React.DragEvent) => {
@@ -2246,11 +2284,24 @@ export function CanvasEditor() {
 
   return (
     <div
-      className="flex-1 flex items-center justify-center bg-canvas p-4 overflow-hidden relative"
+      className="flex-1 flex items-center justify-center bg-canvas overflow-hidden relative"
       onDrop={handleDrop}
       onDragOver={handleDragOver}
     >
-      <div className="relative rounded-lg overflow-hidden shadow-2xl ring-1 ring-border/50">
+      {/* Canvas wrapper: scale down on small screens via CSS so 960×540 fits */}
+      <div
+        className="relative rounded-lg overflow-hidden shadow-2xl ring-1 ring-border/50"
+        style={{
+          transform: `scale(var(--canvas-scale, 1))`,
+          transformOrigin: "center center",
+        }}
+      >
+        <style>{`
+          :root { --canvas-scale: 1; }
+          @media (max-width: 767px) {
+            :root { --canvas-scale: min(calc((100vw - 8px) / 960), calc((100svh - 280px) / 540)); }
+          }
+        `}</style>
         <canvas ref={canvasRef} className="block" data-canvas-role="fabric" />
         <canvas 
           ref={pixiCanvasRef} 

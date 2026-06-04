@@ -416,10 +416,10 @@ export function AudioFilterPanel({ trackId, trackName, mediaOffset, clipDuration
 
   return (
     <div
-      className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm"
+      className="fixed inset-0 z-50 flex items-end sm:items-center justify-center bg-black/60 backdrop-blur-sm"
       onClick={(e) => { if (e.target === e.currentTarget) onClose(); }}
     >
-      <div className="w-[340px] bg-[#13131f] border border-white/10 rounded-2xl shadow-2xl flex flex-col overflow-hidden">
+      <div className="w-full max-w-[340px] mx-4 mb-4 sm:mb-0 bg-[#13131f] border border-white/10 rounded-2xl shadow-2xl flex flex-col overflow-hidden">
         {/* Header */}
         <div className="flex items-center justify-between px-4 py-3 border-b border-white/8">
           <div className="flex items-center gap-2">

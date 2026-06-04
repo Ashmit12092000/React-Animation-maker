@@ -49,8 +49,8 @@ interface LottieEntry {
 // ─── Data ─────────────────────────────────────────────────────────────────────
 
 const LOTTIE_CATALOGUE: LottieEntry[] = [
-  { id: "moving-scene", label: "Moving Scene",  emoji: "🌳", category: "Nature",      url: "public/wmremove-transformed.json", bg: "#fbbf24" },
-  { id: "cloud",        label: "Cloud",          emoji: "☁️", category: "Nature",      url: "public/cloud.json",                bg: "#bfdbfe" },
+  { id: "moving-scene", label: "Moving Scene",  emoji: "🌳", category: "Nature",      url: "wmremove-transformed.json", bg: "#fbbf24" },
+  { id: "cloud",        label: "Cloud",          emoji: "☁️", category: "Nature",      url: "cloud.json",                bg: "#bfdbfe" },
   { id: "night-sky",   label: "Night Sky",       emoji: "🌌", category: "Nature",      url: "https://assets2.lottiefiles.com/packages/lf20_kcsr6fcp.json",  bg: "#0f0c29" },
   { id: "sunset",      label: "Sunset",          emoji: "🌅", category: "Nature",      url: "https://assets9.lottiefiles.com/packages/lf20_xlmz9xwm.json",  bg: "#f97316" },
   { id: "rain",        label: "Rainy Day",       emoji: "🌧️", category: "Nature",      url: "https://assets5.lottiefiles.com/packages/lf20_twijbubv.json",  bg: "#1e3a5f" },
@@ -437,8 +437,8 @@ function AddSceneModal({ onClose, onAdd }: {
   };
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm" onClick={onClose}>
-      <div className="bg-panel border border-panel-border rounded-2xl shadow-2xl w-[300px] p-4" onClick={e => e.stopPropagation()}>
+    <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center bg-black/60 backdrop-blur-sm" onClick={onClose}>
+      <div className="bg-panel border border-panel-border rounded-2xl shadow-2xl w-full max-w-[300px] mx-4 mb-4 sm:mb-0 p-4" onClick={e => e.stopPropagation()}>
         <div className="flex items-center justify-between mb-3">
           <h3 className="text-[12px] font-bold text-foreground">Add New Scene</h3>
           <button onClick={onClose} className="w-6 h-6 flex items-center justify-center rounded hover:bg-secondary transition-colors">

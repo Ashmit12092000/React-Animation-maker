@@ -17,12 +17,14 @@ import {
 
 export function PropertyPanel() {
   const [isOpen, setIsOpen] = useState(true);
+  const [isMobile, setIsMobile] = useState(false);
 
   // Auto-open on desktop, close on mobile
   useEffect(() => {
     const checkScreenSize = () => {
-      const isDesktop = window.innerWidth >= 768;
-      setIsOpen(isDesktop);
+      const mobile = window.innerWidth < 768;
+      setIsMobile(mobile);
+      setIsOpen(!mobile);
     };
     checkScreenSize();
     window.addEventListener("resize", checkScreenSize);
@@ -194,36 +196,47 @@ export function PropertyPanel() {
   };
 
   return (
-    <div className="relative h-full">
-      {/* Canva-style toggle button 
-      <button
-        onClick={() => setIsOpen((prev) => !prev)}
-        className={`
-          absolute top-1/2 -translate-y-1/2 z-50
-          w-9 h-14 flex items-center justify-center
-          bg-panel border border-panel-border rounded-l-lg shadow-md
-          transition-all duration-300 ease-in-out
-          ${isOpen ? "right-64" : "right-0"}
-        `}
-        aria-label="Toggle properties panel"
-      >
-        {isOpen ? (
-          <ChevronRight className="w-4 h-4 text-muted-foreground" />
-        ) : (
-          <ChevronLeft className="w-4 h-4 text-muted-foreground" />
-        )}
-      </button>
-      */}
+    <div className={isMobile ? `fixed inset-x-0 bottom-0 z-50 ${!isOpen ? "pointer-events-none" : ""}` : "relative h-full"}>
+      {/* Mobile: floating trigger button when panel is closed and object selected */}
+      {isMobile && !isOpen && selectedObject && (
+        <div className="fixed bottom-16 right-3 z-50 pointer-events-auto">
+          <button
+            onClick={() => setIsOpen(true)}
+            className="flex items-center gap-1.5 px-3 py-2 rounded-full bg-primary text-primary-foreground text-xs font-semibold shadow-lg"
+          >
+            <Move className="w-3.5 h-3.5" />
+            Properties
+          </button>
+        </div>
+      )}
+
+      {/* Mobile backdrop */}
+      {isMobile && isOpen && (
+        <div className="fixed inset-0 z-[-1]" onClick={() => setIsOpen(false)} />
+      )}
 
       {/* Property Panel */}
       <div
-        className={`
+        className={isMobile ? `
+          w-full bg-panel border-t border-panel-border shadow-2xl rounded-t-2xl
+          transition-transform duration-300 ease-in-out
+          ${isOpen ? "translate-y-0" : "translate-y-full"}
+        ` : `
           relative top-0 right-0 h-full w-64 bg-panel border-l border-panel-border
           transition-transform duration-300 ease-in-out
           ${isOpen ? "translate-x-0" : "translate-x-full"}
         `}
       >
-        <div className="flex flex-col h-full bg-secondary/10 overflow-hidden">
+        {/* Mobile drag handle */}
+        {isMobile && (
+          <div className="flex justify-center pt-2 pb-1 flex-shrink-0 cursor-pointer" onClick={() => setIsOpen(false)}>
+            <div className="w-10 h-1 rounded-full bg-panel-border" />
+          </div>
+        )}
+        <div
+          className="flex flex-col bg-secondary/10 overflow-hidden"
+          style={isMobile ? { maxHeight: "60vh", height: "60vh" } : { height: "100%" }}
+        >
           {/* Header */}
           <div className="p-4 border-b border-panel-border">
             <h2 className="text-sm font-semibold text-foreground">

@@ -134,7 +134,7 @@ export function BackgroundCropModal({
         style={{
           background: "#141420",
           border: "1px solid rgba(255,255,255,0.08)",
-          width: previewW + 48,
+          width: "min(100vw - 16px, " + (previewW + 48) + "px)",
         }}
       >
         {/* Header */}

@@ -483,6 +483,7 @@ function ShapesPanel() {
 // ─── AssetPanel ───────────────────────────────────────────────────────────────
 export function AssetPanel() {
   const [isOpen, setIsOpen] = useState(true);
+  const [isMobile, setIsMobile] = useState(false);
   const [panelHeight, setPanelHeight] = useState<number | null>(null);
   const isDraggingV = useRef(false);
   const dragStartY  = useRef(0);
@@ -511,7 +512,11 @@ export function AssetPanel() {
   }, []);
 
   useEffect(() => {
-    const checkScreenSize = () => setIsOpen(window.innerWidth >= 768);
+    const checkScreenSize = () => {
+      const mobile = window.innerWidth < 768;
+      setIsMobile(mobile);
+      setIsOpen(!mobile);
+    };
     checkScreenSize();
     window.addEventListener("resize", checkScreenSize);
     return () => window.removeEventListener("resize", checkScreenSize);
@@ -537,6 +542,12 @@ export function AssetPanel() {
 
   const handleDragStart = (e: React.DragEvent, asset: Asset) => {
     e.dataTransfer.setData("asset", JSON.stringify(asset));
+  };
+
+  // Mobile: tap to add asset directly to canvas centre (drag-and-drop doesn't work on touch)
+  const handleAssetTap = (asset: Asset) => {
+    (window as any).__addAssetToCanvas?.(asset);
+    setIsOpen(false); // close drawer after adding
   };
 
   const handleSetBackground = (color: string) => {
@@ -591,35 +602,10 @@ export function AssetPanel() {
 
   const drawColors = ["#ffffff","#f87171","#fbbf24","#34d399","#60a5fa","#a78bfa","#f472b6","#111827"];
 
-  return (
-    <div
-      ref={panelRef}
-      style={panelHeight !== null ? { height: panelHeight } : undefined}
-      className={`relative flex ${panelHeight !== null ? "" : "h-full"} ${isOpen ? "w-80" : "w-[80px]"} bg-panel border-r border-panel-border transition-all duration-300 ease-in-out overflow-hidden flex-row`}
-    >
-      {/* Close button */}
-      <div className={"absolute top-2 right-0 z-20 transition-all duration-50 ease-in-out" + (isOpen ? " opacity-100 visible" : " opacity-0 invisible")}>
-        <button
-          onClick={() => setIsOpen(false)}
-          className="w-10 h-10 flex items-center justify-center bg-panel rounded-md shadow-sm transition-transform duration-100 hover:scale-105"
-          aria-label="Close panel"
-        >
-          <ChevronLeft className="w-5 h-5 text-muted-foreground" />
-        </button>
-      </div>
 
-      {/* ── Left nav rail ── */}
-      <div className="w-[80px] px-4 flex flex-col items-center py-4 border-r border-panel-border bg-panel gap-4">
-        <NavButton active={activeTab === "elements"}   onClick={() => handleLeftNavClick("elements")}   icon={<Box className="w-5 h-5" />}    label="Elements" />
-        <NavButton active={activeTab === "text"}       onClick={() => handleLeftNavClick("text")}       icon={<Type className="w-5 h-5" />}   label="Text" />
-        <NavButton active={activeTab === "scenes"}     onClick={() => handleLeftNavClick("scenes")}     icon={<Film className="w-5 h-5" />}   label="Scenes" />
-        <NavButton active={activeTab === "characters"} onClick={() => handleLeftNavClick("characters")} icon={<Layers className="w-5 h-5" />} label="Characters" />
-        <NavButton active={activeTab === "media"}      onClick={() => handleLeftNavClick("media")}      icon={<Upload className="w-5 h-5" />} label="Uploads" />
-        <NavButton active={activeTab === "draw"}       onClick={() => handleLeftNavClick("draw")}       icon={<Pencil className="w-5 h-5" />} label="Draw" />
-      </div>
-
-      {/* ── Panel content ── */}
-      <div className={`flex-1 flex flex-col h-full bg-secondary/10 overflow-hidden transition-all duration-100 ease-in-out ${isOpen ? "opacity-100 translate-x-0" : "opacity-0 -translate-x-2 pointer-events-none"}`}>
+  // ── shared panel content (used in both mobile drawer and desktop sidebar) ──
+  const panelContent = (
+    <div className="flex-1 flex flex-col overflow-hidden h-full">
 
         {/* ELEMENTS */}
         {activeTab === "elements" && (
@@ -649,7 +635,7 @@ export function AssetPanel() {
                     <p className="text-xs text-muted-foreground mb-2">Uploaded Images</p>
                     <div className="grid grid-cols-2 gap-2">
                       {uploadedAssets.filter(a => a.type === "item").map((asset) => (
-                        <div key={asset.id} draggable onDragStart={(e) => handleDragStart(e, asset)} className="group relative aspect-square rounded-xl bg-secondary border border-panel-border hover:border-primary/50 cursor-grab active:cursor-grabbing overflow-hidden transition-all">
+                        <div key={asset.id} draggable onDragStart={(e) => handleDragStart(e, asset)} onClick={() => handleAssetTap(asset)} className="group relative aspect-square rounded-xl bg-secondary border border-panel-border hover:border-primary/50 cursor-pointer active:scale-95 overflow-hidden transition-all touch-manipulation">
                           <img src={asset.src} alt={asset.name} className="w-full h-full object-cover" />
                           <div className="absolute inset-x-0 bottom-0 bg-black/60 p-1 translate-y-full group-hover:translate-y-0 transition-transform">
                             <p className="text-[10px] text-white text-center truncate">{asset.name}</p>
@@ -669,7 +655,7 @@ export function AssetPanel() {
           </div>
         )}
 
-        {/* SCENES — full SceneManagerPanel (storyboard + animated BG library) */}
+        {/* SCENES */}
         {activeTab === "scenes" && (
           <div className="flex flex-col h-full overflow-hidden">
             <SceneManagerPanel />
@@ -730,76 +716,44 @@ export function AssetPanel() {
                 <UploadButton label="Upload Audio" icon={<Music className="w-5 h-5 text-purple-400" />}      accept="audio/mpeg,.mp3"  onChange={(e) => handleMediaUpload(e, "audio")} />
                 <UploadButton label="Upload Video" icon={<Video className="w-5 h-5 text-blue-400" />}        accept="video/mp4,.mp4"   onChange={(e) => handleMediaUpload(e, "video")} />
               </div>
-
               {uploadedAssets.filter(a => a.type === "item").length > 0 && (
                 <div>
                   <h3 className="text-xs font-medium text-muted-foreground mb-2 uppercase tracking-wider">Images &amp; GIFs</h3>
                   <div className="grid grid-cols-2 gap-2">
                     {uploadedAssets.filter(a => a.type === "item").map((asset) => (
-                      <div key={asset.id} draggable onDragStart={(e) => handleDragStart(e, asset)} className="group relative aspect-square rounded-xl bg-secondary border border-panel-border hover:border-primary/50 cursor-grab active:cursor-grabbing overflow-hidden transition-all" title={`Drag to canvas · ${asset.name}`}>
-                        <img src={asset.src} alt={asset.name} className="w-full h-full object-cover" style={{ imageRendering: (asset as any).isGif ? "auto" : undefined }} />
-                        {(asset as any).isGif && <div className="absolute top-1 left-1 bg-black/70 text-[9px] font-bold text-pink-300 px-1.5 py-0.5 rounded-full leading-none border border-pink-400/30">GIF</div>}
-                        <button
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            removeUploadedAsset(asset.id);
-                          }}
-                          className="absolute top-1 right-1 opacity-0 group-hover:opacity-100 transition-opacity bg-red-600 hover:bg-red-700 text-white rounded-full p-1 transition-colors"
-                          title="Delete this image"
-                        >
-                          <X className="w-3 h-3" />
-                        </button>
-                        <div className="absolute inset-x-0 bottom-0 bg-black/60 p-1 translate-y-full group-hover:translate-y-0 transition-transform">
-                          <p className="text-[10px] text-white text-center truncate">{asset.name}</p>
-                        </div>
+                      <div key={asset.id} draggable onDragStart={(e) => handleDragStart(e, asset)} onClick={() => handleAssetTap(asset)} className="group relative aspect-square rounded-xl bg-secondary border border-panel-border hover:border-primary/50 cursor-pointer active:scale-95 overflow-hidden transition-all touch-manipulation">
+                        <img src={asset.src} alt={asset.name} className="w-full h-full object-cover" />
+                        <button onClick={(e) => { e.stopPropagation(); removeUploadedAsset(asset.id); }} className="absolute top-1 right-1 opacity-0 group-hover:opacity-100 transition-opacity bg-red-600 hover:bg-red-700 text-white rounded-full p-1"><X className="w-3 h-3" /></button>
+                        <div className="absolute inset-x-0 bottom-0 bg-black/60 p-1 translate-y-full group-hover:translate-y-0 transition-transform"><p className="text-[10px] text-white text-center truncate">{asset.name}</p></div>
                       </div>
                     ))}
                   </div>
                 </div>
               )}
-
               <div>
                 <h3 className="text-xs font-medium text-muted-foreground mb-2 uppercase tracking-wider">Audio Library</h3>
                 <div className="space-y-2">
                   {audioAssets.length === 0 && <p className="text-xs text-muted-foreground italic">No audio uploaded yet</p>}
                   {audioAssets.map((asset) => (
                     <div key={asset.id} className="group flex items-center gap-1">
-                      <button onClick={() => addAudioTrack(asset.name, asset.src!)} className="flex-1 flex items-center gap-3 p-2 rounded bg-secondary/40 text-xs border border-transparent hover:border-purple-500/30 hover:bg-secondary/60 transition-colors text-left min-w-0" title="Click to add to timeline">
-                        <Music className="w-3 h-3 text-purple-400 shrink-0" />
-                        <span className="truncate">{asset.name}</span>
+                      <button onClick={() => addAudioTrack(asset.name, asset.src!)} className="flex-1 flex items-center gap-3 p-2 rounded bg-secondary/40 text-xs border border-transparent hover:border-purple-500/30 hover:bg-secondary/60 transition-colors text-left min-w-0">
+                        <Music className="w-3 h-3 text-purple-400 shrink-0" /><span className="truncate">{asset.name}</span>
                       </button>
-                      <button
-                        onClick={() => removeUploadedAsset(asset.id)}
-                        className="opacity-0 group-hover:opacity-100 transition-opacity p-1.5 rounded bg-red-600 hover:bg-red-700 text-white shrink-0"
-                        title="Delete this audio"
-                      >
-                        <X className="w-3 h-3" />
-                      </button>
+                      <button onClick={() => removeUploadedAsset(asset.id)} className="opacity-0 group-hover:opacity-100 transition-opacity p-1.5 rounded bg-red-600 hover:bg-red-700 text-white shrink-0"><X className="w-3 h-3" /></button>
                     </div>
                   ))}
                 </div>
               </div>
-
               <div>
                 <h3 className="text-xs font-medium text-muted-foreground mb-2 uppercase tracking-wider">Video Library</h3>
                 <div className="space-y-2">
                   {videoAssets.length === 0 && <p className="text-xs text-muted-foreground italic">No videos uploaded yet</p>}
                   {videoAssets.map((asset) => (
                     <div key={asset.id} className="group flex items-center gap-1">
-                      <button onClick={() => addVideoTrack(asset.name, asset.src!)} className="flex-1 flex items-center gap-3 p-2 rounded bg-secondary/40 text-xs border border-transparent hover:border-blue-500/30 hover:bg-secondary/60 transition-colors text-left min-w-0" title="Click to add to timeline">
-                        <Video className="w-3 h-3 text-blue-400 shrink-0" />
-                        <span className="truncate">{asset.name}</span>
+                      <button onClick={() => addVideoTrack(asset.name, asset.src!)} className="flex-1 flex items-center gap-3 p-2 rounded bg-secondary/40 text-xs border border-transparent hover:border-blue-500/30 hover:bg-secondary/60 transition-colors text-left min-w-0">
+                        <Video className="w-3 h-3 text-blue-400 shrink-0" /><span className="truncate">{asset.name}</span>
                       </button>
-                      <div draggable onDragStart={(e) => handleDragStart(e, asset)} className="p-2 rounded bg-secondary/40 text-xs border border-transparent hover:bg-secondary/60 cursor-grab active:cursor-grabbing flex items-center justify-center shrink-0" title="Drag to canvas">
-                        <MousePointer2 className="w-3 h-3 text-muted-foreground" />
-                      </div>
-                      <button
-                        onClick={() => removeUploadedAsset(asset.id)}
-                        className="opacity-0 group-hover:opacity-100 transition-opacity p-1.5 rounded bg-red-600 hover:bg-red-700 text-white shrink-0"
-                        title="Delete this video"
-                      >
-                        <X className="w-3 h-3" />
-                      </button>
+                      <button onClick={() => removeUploadedAsset(asset.id)} className="opacity-0 group-hover:opacity-100 transition-opacity p-1.5 rounded bg-red-600 hover:bg-red-700 text-white shrink-0"><X className="w-3 h-3" /></button>
                     </div>
                   ))}
                 </div>
@@ -823,41 +777,7 @@ export function AssetPanel() {
                   <button onClick={() => { setDrawingEnabled(true); setEraserEnabled(false); }} className={cn("flex flex-col items-center gap-1 py-2 px-1 rounded-md text-xs transition-all", drawingEnabled && !eraserEnabled ? "bg-primary text-primary-foreground shadow-sm font-medium" : "text-muted-foreground hover:text-foreground")}><Pencil className="h-4 w-4" /><span>Pen</span></button>
                   <button onClick={() => { setDrawingEnabled(true); setEraserEnabled(true); }} className={cn("flex flex-col items-center gap-1 py-2 px-1 rounded-md text-xs transition-all", drawingEnabled && eraserEnabled ? "bg-destructive text-destructive-foreground shadow-sm font-medium" : "text-muted-foreground hover:text-foreground")}><Eraser className="h-4 w-4" /><span>Eraser</span></button>
                 </div>
-                <p className="text-[10px] text-center text-muted-foreground">
-                  {!drawingEnabled && "Click Pen or Eraser to start drawing"}
-                  {drawingEnabled && !eraserEnabled && "🖊 Draw on the canvas"}
-                  {drawingEnabled && eraserEnabled && "⬜ Click & drag to erase strokes"}
-                </p>
               </div>
-
-              {drawingEnabled && !eraserEnabled && (
-                <div className="space-y-3">
-                  <div className="flex items-center justify-between">
-                    <Label className="text-xs">Brush Size</Label>
-                    <span className="text-xs text-muted-foreground font-mono">{drawingBrushSize}px</span>
-                  </div>
-                  <div className="flex items-center justify-center h-10 bg-secondary rounded-md">
-                    <div className="rounded-full bg-foreground/80" style={{ width: Math.min(drawingBrushSize, 36), height: Math.min(drawingBrushSize, 36) }} />
-                  </div>
-                  <input type="range" min={1} max={60} value={drawingBrushSize} onChange={(e) => setDrawingBrushSize(Number(e.target.value))} className="w-full accent-primary" style={{ cursor: "pointer" }} />
-                  <div className="flex justify-between text-xs text-muted-foreground"><span>1px</span><span>60px</span></div>
-                </div>
-              )}
-
-              {drawingEnabled && eraserEnabled && (
-                <div className="space-y-3">
-                  <div className="flex items-center justify-between">
-                    <Label className="text-xs">Eraser Size</Label>
-                    <span className="text-xs text-muted-foreground font-mono">{eraserSize}px</span>
-                  </div>
-                  <div className="flex items-center justify-center h-12 bg-secondary rounded-md">
-                    <div className="rounded-full border-2 border-destructive/70 bg-destructive/10" style={{ width: Math.min(eraserSize, 44), height: Math.min(eraserSize, 44) }} />
-                  </div>
-                  <input type="range" min={4} max={120} value={eraserSize} onChange={(e) => setEraserSize(Number(e.target.value))} className="w-full accent-destructive" style={{ cursor: "pointer" }} />
-                  <div className="flex justify-between text-xs text-muted-foreground"><span>4px</span><span>120px</span></div>
-                </div>
-              )}
-
               {drawingEnabled && !eraserEnabled && (
                 <div className="space-y-2">
                   <Label className="text-xs">Color</Label>
@@ -865,12 +785,6 @@ export function AssetPanel() {
                     {drawColors.map((color) => (
                       <button key={color} onClick={() => setDrawingColor(color)} className={cn("h-8 w-8 rounded border transition-all", drawingColor === color ? "border-primary ring-2 ring-primary/40 scale-110" : "border-panel-border hover:scale-105")} style={{ backgroundColor: color }} />
                     ))}
-                  </div>
-                  <div className="flex items-center gap-2">
-                    <div className="w-9 h-9 rounded border border-panel-border overflow-hidden shrink-0 relative">
-                      <input type="color" value={drawingColor} onChange={(e) => setDrawingColor(e.target.value)} className="absolute w-[150%] h-[150%] -top-1/4 -left-1/4 cursor-pointer" />
-                    </div>
-                    <Input value={drawingColor} onChange={(e) => setDrawingColor(e.target.value)} className="flex-1 bg-secondary text-xs font-mono" />
                   </div>
                 </div>
               )}
@@ -882,54 +796,29 @@ export function AssetPanel() {
         {activeTab === "characters" && (
           <div className="flex flex-col h-full">
             <div className="p-4 border-b border-panel-border">
-              <h2 className="font-semibold text-foreground">Characters & Props</h2>
-              <p className="text-xs text-muted-foreground mt-1">11 animations · 1 prop — drag onto canvas</p>
+              <h2 className="font-semibold text-foreground">Characters &amp; Props</h2>
+              <p className="text-xs text-muted-foreground mt-1">Tap to add · drag on desktop</p>
             </div>
             <div className="flex-1 overflow-y-auto p-4 custom-scrollbar space-y-5">
-              {propGroups.map((group) => (
+              {[...propGroups, ...characterGroups].map((group) => (
                 <div key={group.label}>
                   <div className="flex items-center gap-2 mb-2">
                     <div className="w-2 h-2 rounded-full shrink-0" style={{ backgroundColor: group.color }} />
                     <span className="text-[10px] font-semibold uppercase tracking-wider" style={{ color: group.color }}>{group.label}</span>
-                    <div className="flex-1 h-px" style={{ backgroundColor: group.color + "22" }} />
                   </div>
                   <div className="grid grid-cols-2 gap-2">
                     {group.assets.map((asset) => (
-                      <div key={asset.id} draggable onDragStart={(e) => handleDragStart(e, asset)}
-                        className="group flex items-center gap-2 p-2.5 rounded-lg border cursor-grab active:cursor-grabbing transition-all select-none"
-                        style={{ backgroundColor: (asset.color ?? "#f97316") + "0d", borderColor: (asset.color ?? "#f97316") + "33" }}
-                        onMouseEnter={(e) => { (e.currentTarget as HTMLElement).style.borderColor = (asset.color ?? "#f97316") + "88"; (e.currentTarget as HTMLElement).style.backgroundColor = (asset.color ?? "#f97316") + "1a"; }}
-                        onMouseLeave={(e) => { (e.currentTarget as HTMLElement).style.borderColor = (asset.color ?? "#f97316") + "33"; (e.currentTarget as HTMLElement).style.backgroundColor = (asset.color ?? "#f97316") + "0d"; }}
-                      >
-                        <div className="w-9 h-9 rounded-md flex items-center justify-center text-xl shrink-0" style={{ backgroundColor: (asset.color ?? "#f97316") + "22" }}>{asset.icon}</div>
-                        <div className="flex-1 min-w-0">
-                          <p className="text-[11px] font-medium leading-tight truncate capitalize" style={{ color: asset.color ?? "#e2e8f0" }}>{asset.name.replace(/_/g, " ")}</p>
-                          <p className="text-[9px] mt-0.5" style={{ color: (asset.color ?? "#f97316") + "bb" }}>✦ dbl-click for actions</p>
-                        </div>
-                      </div>
-                    ))}
-                  </div>
-                </div>
-              ))}
-              {characterGroups.map((group) => (
-                <div key={group.label}>
-                  <div className="flex items-center gap-2 mb-2">
-                    <div className="w-2 h-2 rounded-full shrink-0" style={{ backgroundColor: group.color }} />
-                    <span className="text-[10px] font-semibold uppercase tracking-wider" style={{ color: group.color }}>{group.label}</span>
-                    <div className="flex-1 h-px" style={{ backgroundColor: group.color + "22" }} />
-                  </div>
-                  <div className="grid grid-cols-2 gap-2">
-                    {group.assets.map((asset) => (
-                      <div key={asset.id} draggable onDragStart={(e) => handleDragStart(e, asset)}
-                        className="group flex items-center gap-2 p-2.5 rounded-lg border cursor-grab active:cursor-grabbing transition-all select-none"
+                      <div key={asset.id}
+                        draggable
+                        onDragStart={(e) => handleDragStart(e, asset)}
+                        onClick={() => handleAssetTap(asset)}
+                        className="group flex items-center gap-2 p-2.5 rounded-lg border cursor-pointer active:scale-95 transition-all select-none touch-manipulation"
                         style={{ backgroundColor: (asset.color ?? "#6366f1") + "0d", borderColor: (asset.color ?? "#6366f1") + "33" }}
-                        onMouseEnter={(e) => { (e.currentTarget as HTMLElement).style.borderColor = (asset.color ?? "#6366f1") + "88"; (e.currentTarget as HTMLElement).style.backgroundColor = (asset.color ?? "#6366f1") + "1a"; }}
-                        onMouseLeave={(e) => { (e.currentTarget as HTMLElement).style.borderColor = (asset.color ?? "#6366f1") + "33"; (e.currentTarget as HTMLElement).style.backgroundColor = (asset.color ?? "#6366f1") + "0d"; }}
                       >
                         <div className="w-9 h-9 rounded-md flex items-center justify-center text-xl shrink-0" style={{ backgroundColor: (asset.color ?? "#6366f1") + "22" }}>{asset.icon}</div>
                         <div className="flex-1 min-w-0">
                           <p className="text-[11px] font-medium leading-tight truncate capitalize" style={{ color: asset.color ?? "#e2e8f0" }}>{asset.name.replace(/_/g, " ")}</p>
-                          <p className="text-[9px] text-muted-foreground mt-0.5">drag to canvas</p>
+                          <p className="text-[9px] text-muted-foreground mt-0.5">tap to add</p>
                         </div>
                       </div>
                     ))}
@@ -939,12 +828,76 @@ export function AssetPanel() {
             </div>
           </div>
         )}
-      </div>
 
-      {/* Resize handle */}
-      <div onMouseDown={onResizeMouseDown} className="absolute bottom-0 left-0 right-0 h-2 cursor-ns-resize z-30 group flex items-center justify-center" title="Drag to resize panel height">
-        <div className="w-10 h-1 rounded-full bg-panel-border group-hover:bg-primary/50 transition-colors" />
-      </div>
+    </div>
+  );
+
+  return (
+    <div ref={panelRef}>
+      {/* ── MOBILE: always-visible tab bar fixed at the bottom ── */}
+      {isMobile && (
+        <div
+          className="fixed inset-x-0 bottom-0 z-40 flex flex-row items-center justify-around px-1 bg-panel border-t border-panel-border"
+          style={{ height: 56 }}
+        >
+          <NavButton active={activeTab === "elements"}   onClick={() => handleLeftNavClick("elements")}   icon={<Box className="w-5 h-5" />}    label="Elements" />
+          <NavButton active={activeTab === "text"}       onClick={() => handleLeftNavClick("text")}       icon={<Type className="w-5 h-5" />}   label="Text" />
+          <NavButton active={activeTab === "scenes"}     onClick={() => handleLeftNavClick("scenes")}     icon={<Film className="w-5 h-5" />}   label="Scenes" />
+          <NavButton active={activeTab === "characters"} onClick={() => handleLeftNavClick("characters")} icon={<Layers className="w-5 h-5" />} label="Characters" />
+          <NavButton active={activeTab === "media"}      onClick={() => handleLeftNavClick("media")}      icon={<Upload className="w-5 h-5" />} label="Uploads" />
+          <NavButton active={activeTab === "draw"}       onClick={() => handleLeftNavClick("draw")}       icon={<Pencil className="w-5 h-5" />} label="Draw" />
+        </div>
+      )}
+
+      {/* ── MOBILE: content drawer — sits above the tab bar, only when open ── */}
+      {isMobile && isOpen && (
+        <>
+          {/* tap-outside backdrop */}
+          <div className="fixed inset-0 z-40" onClick={() => setIsOpen(false)} />
+          {/* drawer panel */}
+          <div
+            className="fixed inset-x-0 z-50 bg-panel border-t border-panel-border shadow-2xl flex flex-col rounded-t-2xl"
+            style={{ bottom: 56, maxHeight: "55vh" }}
+          >
+            <div className="flex justify-center pt-2 pb-1 flex-shrink-0 cursor-pointer" onClick={() => setIsOpen(false)}>
+              <div className="w-10 h-1 rounded-full bg-panel-border" />
+            </div>
+            {panelContent}
+          </div>
+        </>
+      )}
+
+      {/* ── DESKTOP: sidebar ── */}
+      {!isMobile && (
+        <div
+          style={panelHeight !== null ? { height: panelHeight } : undefined}
+          className={`relative flex h-full ${isOpen ? "w-80" : "w-[80px]"} bg-panel border-r border-panel-border transition-all duration-300 ease-in-out overflow-hidden flex-row`}
+        >
+          {/* Close button */}
+          <div className={"absolute top-2 right-0 z-20 transition-all duration-50 ease-in-out" + (isOpen ? " opacity-100 visible" : " opacity-0 invisible")}>
+            <button onClick={() => setIsOpen(false)} className="w-10 h-10 flex items-center justify-center bg-panel rounded-md shadow-sm transition-transform duration-100 hover:scale-105" aria-label="Close panel">
+              <ChevronLeft className="w-5 h-5 text-muted-foreground" />
+            </button>
+          </div>
+          {/* Nav rail */}
+          <div className="w-[80px] px-4 flex flex-col items-center py-4 border-r border-panel-border bg-panel gap-4">
+            <NavButton active={activeTab === "elements"}   onClick={() => handleLeftNavClick("elements")}   icon={<Box className="w-5 h-5" />}    label="Elements" />
+            <NavButton active={activeTab === "text"}       onClick={() => handleLeftNavClick("text")}       icon={<Type className="w-5 h-5" />}   label="Text" />
+            <NavButton active={activeTab === "scenes"}     onClick={() => handleLeftNavClick("scenes")}     icon={<Film className="w-5 h-5" />}   label="Scenes" />
+            <NavButton active={activeTab === "characters"} onClick={() => handleLeftNavClick("characters")} icon={<Layers className="w-5 h-5" />} label="Characters" />
+            <NavButton active={activeTab === "media"}      onClick={() => handleLeftNavClick("media")}      icon={<Upload className="w-5 h-5" />} label="Uploads" />
+            <NavButton active={activeTab === "draw"}       onClick={() => handleLeftNavClick("draw")}       icon={<Pencil className="w-5 h-5" />} label="Draw" />
+          </div>
+          {/* Panel content */}
+          <div className={`flex-1 flex flex-col h-full bg-secondary/10 overflow-hidden transition-all duration-100 ease-in-out ${isOpen ? "opacity-100 translate-x-0" : "opacity-0 -translate-x-2 pointer-events-none"}`}>
+            {panelContent}
+          </div>
+          {/* Resize handle */}
+          <div onMouseDown={onResizeMouseDown} className="absolute bottom-0 left-0 right-0 h-2 cursor-ns-resize z-30 group flex items-center justify-center">
+            <div className="w-10 h-1 rounded-full bg-panel-border group-hover:bg-primary/50 transition-colors" />
+          </div>
+        </div>
+      )}
     </div>
   );
 }
@@ -952,9 +905,16 @@ export function AssetPanel() {
 // ─── Helper components ────────────────────────────────────────────────────────
 function NavButton({ active, onClick, icon, label }: { active: boolean; onClick: () => void; icon: React.ReactNode; label: string }) {
   return (
-    <button onClick={onClick} className={cn("flex flex-col items-center justify-center w-full h-12 rounded-xl transition-all", active ? "bg-primary/10 text-primary" : "text-muted-foreground hover:bg-secondary hover:text-foreground")}>
+    <button
+      onClick={onClick}
+      className={cn(
+        "flex flex-col items-center justify-center rounded-xl transition-all touch-manipulation select-none",
+        "min-w-[44px] flex-1 py-1.5 px-1 w-full",
+        active ? "bg-primary/10 text-primary" : "text-muted-foreground hover:bg-secondary hover:text-foreground"
+      )}
+    >
       {icon}
-      <span className="text-[10px] mt-1 font-medium">{label}</span>
+      <span className="text-[10px] mt-1 font-medium leading-none">{label}</span>
     </button>
   );
 }

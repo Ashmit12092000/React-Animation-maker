@@ -1,5 +1,5 @@
 import { useState, useRef, useEffect } from "react";
-import { Trash2, Download, Video, Undo2, Redo2, Search, Eraser, AlertTriangle, Save, FolderOpen, CheckCircle2, Loader2, X, PlayCircle } from "lucide-react";
+import { Trash2, Download, Video, Undo2, Redo2, Search, Eraser, AlertTriangle, Save, FolderOpen, CheckCircle2, Loader2, X, PlayCircle, Menu } from "lucide-react";
 import { Button } from "./button";
 import { Input } from "./input";
 import { useEditorStore } from "../../stores/editorStore";
@@ -43,6 +43,7 @@ export function Toolbar() {
   const [loadWarnings, setLoadWarnings] = useState<string[]>([]);
   const [saveFlash, setSaveFlash] = useState(false);
   const [showPreview, setShowPreview] = useState(false);
+  const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
 
   // ── Video export state ────────────────────────────────────────────────────
   const [isExportingVideo, setIsExportingVideo] = useState(false);
@@ -219,35 +220,36 @@ export function Toolbar() {
 
   return (
     <>
-      <div className="h-14 bg-gray-950 border-b border-gray-700 flex items-center justify-between px-4">
-        <div className="flex items-center gap-4">
+      <div className="h-12 md:h-14 bg-gray-950 border-b border-gray-700 flex items-center justify-between px-2 md:px-4 gap-2">
+        {/* ── Left: Project name + undo/redo ───────────────────────────── */}
+        <div className="flex items-center gap-1 md:gap-4 min-w-0">
           {isEditingName ? (
             <Input
               value={projectName}
               onChange={(e) => setProjectName(e.target.value)}
               onBlur={() => setIsEditingName(false)}
               onKeyDown={(e) => e.key === "Enter" && setIsEditingName(false)}
-              className="w-48 h-8"
+              className="w-32 md:w-48 h-7 md:h-8 text-sm"
               autoFocus
             />
           ) : (
             <h1
               onClick={() => setIsEditingName(true)}
-              className="text-lg font-bold cursor-pointer hover:text-blue-400 transition-colors"
+              className="text-sm md:text-lg font-bold cursor-pointer hover:text-blue-400 transition-colors truncate max-w-[120px] md:max-w-none"
             >
               {projectName}
             </h1>
           )}
-          <div className="flex items-center gap-2">
+          <div className="flex items-center gap-1">
             <Button
               variant="outline"
               size="sm"
               onClick={undo}
               disabled={past.length === 0}
               title="Undo (Ctrl+Z)"
-              className="h-8 w-8 p-0"
+              className="h-7 w-7 md:h-8 md:w-8 p-0"
             >
-              <Undo2 className="h-4 w-4" />
+              <Undo2 className="h-3.5 w-3.5 md:h-4 md:w-4" />
             </Button>
             <Button
               variant="outline"
@@ -255,15 +257,15 @@ export function Toolbar() {
               onClick={redo}
               disabled={future.length === 0}
               title="Redo (Ctrl+Y)"
-              className="h-8 w-8 p-0"
+              className="h-7 w-7 md:h-8 md:w-8 p-0"
             >
-              <Redo2 className="h-4 w-4" />
+              <Redo2 className="h-3.5 w-3.5 md:h-4 md:w-4" />
             </Button>
           </div>
         </div>
 
-        <div className="flex items-center gap-2">
-          {/* ── Save project ──────────────────────────────────────────────── */}
+        {/* ── Desktop Actions ───────────────────────────────────────────── */}
+        <div className="hidden md:flex items-center gap-2">
           <Button
             onClick={handleSave}
             variant="outline"
@@ -281,7 +283,6 @@ export function Toolbar() {
             }
           </Button>
 
-          {/* ── Load project ──────────────────────────────────────────────── */}
           <Button
             onClick={handleLoadClick}
             variant="outline"
@@ -291,16 +292,7 @@ export function Toolbar() {
           >
             <FolderOpen className="h-4 w-4" /> Load
           </Button>
-          {/* Hidden file input */}
-          <input
-            ref={fileInputRef}
-            type="file"
-            accept=".json,application/json"
-            className="hidden"
-            onChange={handleFileChange}
-          />
 
-          {/* Clear Canvas */}
           <Button
             onClick={() => setConfirmClear(true)}
             variant="outline"
@@ -312,7 +304,6 @@ export function Toolbar() {
             Clear Canvas
           </Button>
 
-          {/* Delete Selected */}
           <Button
             onClick={handleDelete}
             disabled={!selectedObjectId}
@@ -358,9 +349,105 @@ export function Toolbar() {
               </div>
             )}
           </div>
+        </div>
 
+        {/* ── Mobile Actions: icon row + hamburger ─────────────────────── */}
+        <div className="flex md:hidden items-center gap-1">
+          <Button
+            onClick={handleSave}
+            variant="outline"
+            size="sm"
+            title="Save"
+            className={`h-7 w-7 p-0 ${saveFlash ? "border-green-500/80 text-green-400 bg-green-500/10" : "border-blue-500/60 text-blue-300"}`}
+          >
+            {saveFlash ? <CheckCircle2 className="h-3.5 w-3.5" /> : <Save className="h-3.5 w-3.5" />}
+          </Button>
+
+          <Button
+            onClick={() => setShowPreview(true)}
+            variant="outline"
+            size="sm"
+            title="Preview"
+            className="h-7 w-7 p-0 border-emerald-500/60 text-emerald-300"
+          >
+            <PlayCircle className="h-3.5 w-3.5" />
+          </Button>
+
+          <Button
+            onClick={handleDelete}
+            disabled={!selectedObjectId}
+            variant="destructive"
+            size="sm"
+            className="h-7 w-7 p-0"
+          >
+            <Trash2 className="h-3.5 w-3.5" />
+          </Button>
+
+          {/* Hamburger */}
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() => setMobileMenuOpen(s => !s)}
+            className="h-7 w-7 p-0"
+          >
+            <Menu className="h-3.5 w-3.5" />
+          </Button>
         </div>
       </div>
+
+      {/* ── Mobile Dropdown Menu ─────────────────────────────────────────── */}
+      {mobileMenuOpen && (
+        <div
+          className="fixed inset-0 z-[9990]"
+          onClick={() => setMobileMenuOpen(false)}
+        >
+          <div
+            className="absolute top-12 right-2 bg-gray-900 border border-gray-700 rounded-xl shadow-2xl p-2 flex flex-col gap-1 w-52"
+            onClick={e => e.stopPropagation()}
+          >
+            <button
+              onClick={() => { handleLoadClick(); setMobileMenuOpen(false); }}
+              className="flex items-center gap-2.5 px-3 py-2 rounded-lg text-sm text-purple-300 hover:bg-purple-500/10 transition-colors"
+            >
+              <FolderOpen className="h-4 w-4" /> Load Project
+            </button>
+            <button
+              onClick={() => { handleExport(); setMobileMenuOpen(false); }}
+              className="flex items-center gap-2.5 px-3 py-2 rounded-lg text-sm text-foreground hover:bg-white/5 transition-colors"
+            >
+              <Download className="h-4 w-4" /> Export JSON
+            </button>
+            <button
+              onClick={() => { handleExportVideo(); setMobileMenuOpen(false); }}
+              className="flex items-center gap-2.5 px-3 py-2 rounded-lg text-sm text-red-300 hover:bg-red-500/10 transition-colors"
+            >
+              <Video className="h-4 w-4" /> Export Video
+            </button>
+            <div className="h-px bg-gray-700 my-1" />
+            <button
+              onClick={() => { setConfirmClear(true); setMobileMenuOpen(false); }}
+              className="flex items-center gap-2.5 px-3 py-2 rounded-lg text-sm text-orange-400 hover:bg-orange-500/10 transition-colors"
+            >
+              <Eraser className="h-4 w-4" /> Clear Canvas
+            </button>
+            <button
+              onClick={() => { setPixabayOpen(s => !s); setMobileMenuOpen(false); }}
+              className="flex items-center gap-2.5 px-3 py-2 rounded-lg text-sm text-foreground hover:bg-white/5 transition-colors"
+            >
+              <Search className="h-4 w-4" /> Pixabay
+            </button>
+          </div>
+        </div>
+      )}
+
+      {/* Hidden file input */}
+      <input
+        ref={fileInputRef}
+        type="file"
+        accept=".json,application/json"
+        className="hidden"
+        onChange={handleFileChange}
+      />
 
       {/* ── Confirm Clear Dialog ─────────────────────────────────────────── */}
       {confirmClear && (
@@ -370,7 +457,7 @@ export function Toolbar() {
           onClick={() => setConfirmClear(false)}
         >
           <div
-            className="bg-gray-900 border border-gray-700 rounded-xl shadow-2xl p-6 w-[360px] flex flex-col gap-4"
+            className="bg-gray-900 border border-gray-700 rounded-xl shadow-2xl p-6 w-[min(360px,calc(100vw-32px))] flex flex-col gap-4"
             onClick={(e) => e.stopPropagation()}
           >
             <div className="flex items-center gap-3">
@@ -409,7 +496,7 @@ export function Toolbar() {
           onClick={() => setLoadWarnings([])}
         >
           <div
-            className="bg-gray-900 border border-yellow-600/40 rounded-xl shadow-2xl p-6 w-[420px] flex flex-col gap-4"
+            className="bg-gray-900 border border-yellow-600/40 rounded-xl shadow-2xl p-6 w-[min(420px,calc(100vw-32px))] flex flex-col gap-4"
             onClick={(e) => e.stopPropagation()}
           >
             <div className="flex items-center gap-3">
@@ -437,7 +524,7 @@ export function Toolbar() {
           className="fixed inset-0 z-[9999] flex items-center justify-center"
           style={{ backgroundColor: "rgba(0,0,0,0.75)", backdropFilter: "blur(4px)" }}
         >
-          <div className="bg-gray-900 border border-gray-700 rounded-xl shadow-2xl p-6 w-[400px] flex flex-col gap-5">
+          <div className="bg-gray-900 border border-gray-700 rounded-xl shadow-2xl p-6 w-[min(400px,calc(100vw-32px))] flex flex-col gap-5">
             <div className="flex items-center justify-between">
               <div className="flex items-center gap-3">
                 <div className="flex-shrink-0 w-10 h-10 rounded-full bg-red-500/15 flex items-center justify-center">

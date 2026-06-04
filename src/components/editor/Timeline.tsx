@@ -242,6 +242,14 @@ function WaveformBars({ trackId, count = 28 }: { trackId: string; count?: number
 }
 
 export function Timeline() {
+  const [isMobile, setIsMobile] = useState(false);
+  useEffect(() => {
+    const check = () => setIsMobile(window.innerWidth < 768);
+    check();
+    window.addEventListener("resize", check);
+    return () => window.removeEventListener("resize", check);
+  }, []);
+
   const {
     tracks,
     currentTime,
@@ -678,17 +686,17 @@ export function Timeline() {
       style={{
         background: "linear-gradient(180deg, #0f1117 0%, #0a0d14 100%)",
         borderTop: "1px solid rgba(255,255,255,0.07)",
-        height: 284,
-        minHeight: 284,
-        maxHeight: 284,
+        height: isMobile ? 200 : 284,
+        minHeight: isMobile ? 200 : 284,
+        maxHeight: isMobile ? 200 : 284,
       }}
     >
       {/* ── Scene Context Bar (Canva/Animaker-style) ─────────────────────── */}
       <div
         className="flex items-center gap-1 px-2 flex-shrink-0 overflow-x-auto"
         style={{
-          height: 28,
-          minHeight: 28,
+          height: isMobile ? 36 : 28,
+          minHeight: isMobile ? 36 : 28,
           borderBottom: "1px solid rgba(255,255,255,0.06)",
           background: "rgba(0,0,0,0.25)",
           scrollbarWidth: "none",
@@ -702,7 +710,8 @@ export function Timeline() {
             if (idx > 0) setActiveScene(scenes[idx - 1].id);
           }}
           disabled={scenes.findIndex(s => s.id === activeSceneId) === 0}
-          className="flex-shrink-0 w-5 h-5 flex items-center justify-center rounded text-gray-500 hover:text-gray-300 hover:bg-white/8 disabled:opacity-25 disabled:cursor-not-allowed transition-all"
+          className="flex-shrink-0 flex items-center justify-center rounded text-gray-500 hover:text-gray-300 hover:bg-white/8 disabled:opacity-25 disabled:cursor-not-allowed transition-all touch-manipulation"
+          style={{ width: isMobile ? 32 : 20, height: isMobile ? 32 : 20 }}
         >
           <svg width="8" height="10" viewBox="0 0 8 10" fill="none"><path d="M6.5 1L1.5 5L6.5 9" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/></svg>
         </button>
@@ -728,8 +737,9 @@ export function Timeline() {
                 <button
                   onClick={() => setActiveScene(sc.id)}
                   title={`${sc.label} · ${scTrackCount} track${scTrackCount !== 1 ? "s" : ""}`}
-                  className="flex-shrink-0 flex items-center gap-1.5 px-2 h-5 rounded transition-all"
+                  className="flex-shrink-0 flex items-center gap-1.5 px-2 rounded transition-all touch-manipulation"
                   style={{
+                    height: isMobile ? 28 : 20,
                     background: isActive
                       ? "rgba(99,102,241,0.22)"
                       : "rgba(255,255,255,0.04)",
@@ -781,7 +791,8 @@ export function Timeline() {
             if (idx < scenes.length - 1) setActiveScene(scenes[idx + 1].id);
           }}
           disabled={scenes.findIndex(s => s.id === activeSceneId) === scenes.length - 1}
-          className="flex-shrink-0 w-5 h-5 flex items-center justify-center rounded text-gray-500 hover:text-gray-300 hover:bg-white/8 disabled:opacity-25 disabled:cursor-not-allowed transition-all"
+          className="flex-shrink-0 flex items-center justify-center rounded text-gray-500 hover:text-gray-300 hover:bg-white/8 disabled:opacity-25 disabled:cursor-not-allowed transition-all touch-manipulation"
+          style={{ width: isMobile ? 32 : 20, height: isMobile ? 32 : 20 }}
         >
           <svg width="8" height="10" viewBox="0 0 8 10" fill="none"><path d="M1.5 1L6.5 5L1.5 9" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/></svg>
         </button>
@@ -809,8 +820,8 @@ export function Timeline() {
         )}
       </div>
       <div
-        className="flex items-center gap-2 px-3 py-2 flex-wrap"
-        style={{ borderBottom: "1px solid rgba(255,255,255,0.06)" }}
+        className="flex items-center gap-2 px-3 py-1.5 flex-shrink-0 overflow-x-auto"
+        style={{ borderBottom: "1px solid rgba(255,255,255,0.06)", scrollbarWidth: "none" }}
       >
         <div className="flex items-center gap-1.5 pr-3" style={{ borderRight: "1px solid rgba(255,255,255,0.08)" }}>
           <button
@@ -1031,7 +1042,7 @@ export function Timeline() {
 
       <div className="flex flex-1 overflow-hidden" style={{ minHeight: 0 }}>
         <div
-          className="w-48 flex-shrink-0 flex flex-col overflow-y-auto track-label"
+          className={`${isMobile ? "w-28" : "w-48"} flex-shrink-0 flex flex-col overflow-y-auto track-label`}
           style={{ borderRight: "1px solid rgba(255,255,255,0.06)" }}
         >
           <div className="h-7 flex-shrink-0" style={{ borderBottom: "1px solid rgba(255,255,255,0.06)" }} />

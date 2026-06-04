@@ -708,7 +708,7 @@ export function PropActionPopup({
           border: "1px solid rgba(255,255,255,0.1)",
           borderRadius: 16,
           padding: "14px 14px 14px",
-          width: 310,
+          width: "min(310px, calc(100vw - 16px))",
           maxHeight: "82vh",
           overflowY: "auto",
           boxShadow: `0 16px 56px rgba(0,0,0,0.85), 0 0 0 1px ${config.accentColor}33`,

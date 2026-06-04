@@ -743,7 +743,7 @@ export function CharacterSequencePopup({ trackId, pathEndPoint, canvasEl, onClos
         border:         "1px solid rgba(255,255,255,0.1)",
         borderRadius:   16,
         padding:        "16px 16px 14px",
-        width:          400,
+        width:          "min(400px, calc(100vw - 16px))",
         maxHeight:      "88vh",
         overflowY:      "auto",
         boxShadow:      "0 16px 56px rgba(0,0,0,0.85), 0 0 0 1px rgba(99,102,241,0.2)",
