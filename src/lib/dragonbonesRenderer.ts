@@ -14,12 +14,126 @@ import * as PIXI from "pixi.js";
 import { PixiFactory } from "dragonbones-pixijs";
 export type { PixiArmatureDisplay } from "dragonbones-pixijs";
 
-const SKE_URL = "/animate/dragonbones/characte_2_ske.json";
-const TEX_URL = "/animate/dragonbones/characte_2_tex.json";
-const IMG_URL = "/animate/dragonbones/characte_2_tex.png";
+// Use import.meta.env.BASE_URL so that URLs are always absolute and correct
+// regardless of the page's current path. Without this, relative URLs like
+// "dragonbones/file.json" would silently break whenever the app is served
+// under a sub-path (e.g. base: "/animate/") and the server's SPA fallback
+// or a proxy injects extra content into the response after the JSON bytes,
+// causing JSON.parse to throw "Unexpected non-whitespace character after JSON
+// at position <filesize>".
+const _BASE = import.meta.env.BASE_URL.replace(/\/$/, ""); // strip trailing slash
+const SKE_URL = `${_BASE}/dragonbones/characte_2_ske.json`;
+const TEX_URL = `${_BASE}/dragonbones/characte_2_tex.json`;
+const IMG_URL = `${_BASE}/dragonbones/characte_2_tex.png`;
 
 let _factoryReady = false;
 let _loadPromise: Promise<void> | null = null;
+
+/**
+ * Walk a JSON string and return the index of the character immediately after
+ * the first complete top-level JSON value (object or array).
+ *
+ * This handles the "file sent twice" server bug: the response body is
+ * <valid-json><same-valid-json> (length = 2x file size). Trimming from the
+ * last closing brace leaves the full doubled string, which is still invalid.
+ * We need to find where the FIRST value ends.
+ *
+ * The algorithm tracks brace/bracket depth and skips string literals
+ * (including escaped characters) so it is not confused by braces inside
+ * string values.
+ */
+function findFirstJsonEnd(s: string): number {
+  let i = 0;
+  const len = s.length;
+
+  // Skip leading whitespace
+  while (i < len && (s[i] === " " || s[i] === "\t" || s[i] === "\n" || s[i] === "\r")) i++;
+  if (i === len) return -1;
+
+  const opener = s[i];
+  if (opener !== "{" && opener !== "[") return -1;
+
+  const closer = opener === "{" ? "}" : "]";
+  let depth = 0;
+  let inString = false;
+
+  for (; i < len; i++) {
+    const ch = s[i];
+    if (inString) {
+      if (ch === "\\") { i++; } // skip escaped char
+      else if (ch === '"') { inString = false; }
+      continue;
+    }
+    if (ch === '"') { inString = true; }
+    else if (ch === opener) { depth++; }
+    else if (ch === closer) {
+      depth--;
+      if (depth === 0) return i + 1;
+    }
+  }
+  return -1;
+}
+
+/**
+ * Fetch a JSON asset robustly.
+ *
+ * Production servers can corrupt the response in several ways:
+ *   - Append a trailing newline or small suffix  -> "unexpected char at position N"
+ *   - Send the file body twice (nginx gzip+sendfile bug) -> response = JSON+JSON,
+ *     length = 2x file size; trimming from the last brace still leaves invalid JSON
+ *   - Fall back to index.html for unresolved paths -> Content-Type: text/html
+ *
+ * Strategy:
+ *   1. Detect HTML responses early (SPA fallback).
+ *   2. Fast path: JSON.parse on raw text.
+ *   3. Slow path: use findFirstJsonEnd() to extract exactly the first complete
+ *      JSON value and discard everything after it, then parse that slice.
+ */
+async function fetchJson(url: string, label: string): Promise<unknown> {
+  const r = await fetch(url);
+  if (!r.ok) {
+    throw new Error(`[DragonBones] Failed to fetch ${label}: HTTP ${r.status} - ${url}`);
+  }
+
+  const ct = r.headers.get("content-type") ?? "";
+  if (ct.includes("text/html")) {
+    throw new Error(
+      `[DragonBones] Server returned HTML instead of JSON for ${label}. ` +
+      `Check that "${url}" is reachable and not falling back to index.html.`
+    );
+  }
+
+  const raw = await r.text();
+
+  // Fast path - clean response.
+  try {
+    return JSON.parse(raw);
+  } catch {
+    // Slow path - extract exactly the first complete JSON value.
+    // Handles: trailing bytes, doubled responses (file sent twice by server), etc.
+    const end = findFirstJsonEnd(raw);
+    if (end !== -1 && end < raw.length) {
+      const trimmed = raw.slice(0, end);
+      try {
+        const parsed = JSON.parse(trimmed);
+        console.warn(
+          `[DragonBones] ${label} response was ${raw.length} bytes but first JSON value ` +
+          `ends at ${end} (${raw.length - end} trailing bytes discarded). ` +
+          `Fix your server config to stop sending duplicate/extra content.`
+        );
+        return parsed;
+      } catch {
+        // fall through to error
+      }
+    }
+
+    throw new Error(
+      `[DragonBones] Failed to parse ${label} JSON from "${url}". ` +
+      `Response length: ${raw.length}, first-value boundary: ${findFirstJsonEnd(raw)}. ` +
+      `First 200 chars: ${raw.slice(0, 200)}`
+    );
+  }
+}
 
 /** One-time load + parse of the DragonBones data into the global factory. */
 async function ensureFactoryLoaded(): Promise<void> {
@@ -28,14 +142,8 @@ async function ensureFactoryLoaded(): Promise<void> {
 
   _loadPromise = (async () => {
     const [skeletonData, atlasData] = await Promise.all([
-      fetch(SKE_URL).then((r) => {
-        if (!r.ok) throw new Error(`Failed to load skeleton: ${r.status} ${SKE_URL}`);
-        return r.json();
-      }),
-      fetch(TEX_URL).then((r) => {
-        if (!r.ok) throw new Error(`Failed to load atlas: ${r.status} ${TEX_URL}`);
-        return r.json();
-      }),
+      fetchJson(SKE_URL, "skeleton"),
+      fetchJson(TEX_URL, "atlas"),
     ]);
 
     // Load texture — try PIXI.Assets first, fall back to blob URL
